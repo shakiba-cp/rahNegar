@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block page_title %}<svg class="ic pt-ic"><use href="#i-sliders"/></svg> فیلدهای حوزه «{{ domain['name'] }}»{% endblock %}
+{% block page_desc %}افزودن، ویرایش، ترتیب و فعال/غیرفعال‌سازی فیلدهای فرم این حوزه{% endblock %}
+{% block page_actions %}
+<a class="btn ghost sm" href="{{ url_for('activity_new', domain_id=domain['id']) }}"><svg class="ic i14"><use href="#i-plus"/></svg> ثبت فعالیت این حوزه</a>
+<a class="btn ghost sm" href="{{ url_for('domains_page') }}"><svg class="ic i14"><use href="#i-layers"/></svg> همه حوزه‌ها</a>
+{% endblock %}
+{% block content %}
+<div class="card">
+  <h3><svg class="ic"><use href="#i-plus"/></svg> افزودن فیلد جدید</h3>
+  <form method="post" action="{{ url_for('field_add', domain_id=domain['id']) }}" id="fld-add-form">
+    <div class="form-grid">
+      <div><label class="req">نام فیلد</label><input type="text" name="label" placeholder="مثلاً: آدرس IP" required></div>
+      <div><label>نوع فیلد</label>
+        <select name="field_type" id="ftype">
+          <option value="text">متن کوتاه</option>
+          <option value="textarea">متن بلند (توضیحات)</option>
+          <option value="number">عدد</option>
+          <option value="date">تاریخ (شمسی)</option>
+          <option value="select">لیست کشویی</option>
+        </select></div>
+      <div id="opts-box" style="display:none"><label>گزینه‌های لیست (هر خط یک گزینه)</label><textarea name="options" rows="3"></textarea></div>
+      <div>
+        <label>بخش فرم</label>
+        <input type="text" name="section" list="sec-list" placeholder="خالی = فیلدهای اصلی">
+        <datalist id="sec-list">
+          {% for s in sec_choices %}<option value="{{ s }}">{% endfor %}
+        </datalist>
+        <div class="mute mt-1">مثلاً «{{ sec_choices[0] }}»</div>
+      </div>
+      <div><label>&nbsp;</label><span class="chkline"><input type="checkbox" name="required" id="req-new"><label for="req-new" class="mbz">فیلد الزامی است</label></span></div>
+    </div>
+    <button class="btn pri mt-4" type="submit"><svg class="ic"><use href="#i-plus"/></svg> افزودن فیلد</button>
+  </form>
+<script type="application/json" id="fldadd-data">{{ {
+  'sec_choices': sec_choices, 't': request.form.get('field_type','text')
+}|tojson_script }}</script>
+</div>
+
+<div class="card">
+  <h3><svg class="ic"><use href="#i-layers"/></svg> فیلدهای فعلی ({{ fields|length|fa }})</h3>
+  <div class="mute mb-4">فیلدهای بدون بخش در بالای فرم و بقیه زیر عنوان بخش خودشان نمایش داده می‌شوند. با دکمه‌های بالا/پایین، ترتیب را تغییر دهید.</div>
+  <div id="flds-app" v-cloak></div>
+  <script type="application/json" id="flds-data">{{ {'rows': fields_vjson}|tojson_script }}</script>
+</div>
+{% endblock %}
+{% block scripts %}
+<script type="module" src="{{ url_for('static', filename='dist/fields.js') }}?v={{ asset_v }}"></script>
+{% endblock %}

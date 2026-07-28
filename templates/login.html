@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block title %}ورود | {{ sys_name }}{% endblock %}
+{% block page %}
+<div class="lg">
+  {# تزئینات پس‌زمینه سایبری (بدون تصویر خارجی) #}
+  <svg class="lg-bg" viewBox="0 0 1440 900" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+    <defs>
+      <linearGradient id="lgw" x1="0" y1="0" x2="1" y2="0">
+        <stop offset="0%" stop-color="#2dd4bf" stop-opacity="0"/>
+        <stop offset="45%" stop-color="#2dd4bf" stop-opacity=".34"/>
+        <stop offset="100%" stop-color="#0891b2" stop-opacity="0"/>
+      </linearGradient>
+    </defs>
+    <g fill="#2dd4bf">
+      <circle cx="1240" cy="120" r="3" opacity=".5"/><circle cx="1300" cy="210" r="2.2" opacity=".42"/>
+      <circle cx="1150" cy="260" r="2.6" opacity=".4"/><circle cx="1345" cy="330" r="2" opacity=".36"/>
+      <circle cx="1210" cy="420" r="2.4" opacity=".3"/><circle cx="1090" cy="150" r="2" opacity=".32"/>
+      <circle cx="1310" cy="60" r="2.4" opacity=".44"/><circle cx="1180" cy="60" r="1.8" opacity=".3"/>
+      <circle cx="1000" cy="90" r="2" opacity=".22"/><circle cx="1400" cy="160" r="2.4" opacity=".4"/>
+      <circle cx="90" cy="700" r="2.4" opacity=".3"/><circle cx="210" cy="640" r="2" opacity=".26"/>
+      <circle cx="60" cy="560" r="2" opacity=".24"/><circle cx="180" cy="790" r="2.6" opacity=".3"/>
+      <circle cx="420" cy="120" r="2" opacity=".2"/><circle cx="760" cy="70" r="2" opacity=".2"/>
+      <circle cx="620" cy="860" r="2" opacity=".22"/><circle cx="950" cy="830" r="2.2" opacity=".26"/>
+    </g>
+    <g stroke="#2dd4bf" stroke-width="1.1" fill="none" opacity=".22">
+      <path d="M1240 120 1300 210 M1300 210 1150 260 M1150 260 1210 420 M1345 330 1300 210 M1240 120 1180 60 M1310 60 1400 160 M1090 150 1180 60"/>
+    </g>
+    <g stroke="url(#lgw)" stroke-width="2" fill="none">
+      <path d="M-40 640 C 180 560, 320 700, 520 620 S 860 500, 1000 560"/>
+      <path d="M-60 720 C 160 660, 360 800, 560 720 S 820 620, 980 680" opacity=".6"/>
+      <path d="M-30 500 C 140 460, 300 560, 470 500" opacity=".5"/>
+    </g>
+    <g fill="none" stroke="#2dd4bf" opacity=".16">
+      <path d="M1246 470c64-24 128-24 192 0 6 148-96 226-96 226s-102-78-96-226Z" stroke-width="3"/>
+      <rect x="1306" y="556" width="72" height="58" rx="9" stroke-width="4"/>
+      <path d="M1322 556v-20a20 20 0 0 1 40 0v20" stroke-width="4"/>
+      <circle cx="1342" cy="582" r="7" stroke-width="4"/>
+    </g>
+    <g fill="none" stroke="#0891b2" opacity=".14" stroke-width="2">
+      <path d="M40 120c50 90 50 210 0 300M120 60c70 120 70 270 0 390"/>
+    </g>
+  </svg>
+
+  <div class="lg-card">
+    <span class="lg-mark">{% if has_logo %}<img src="{{ url_for('logo') }}" alt="{{ sys_name }}">{% else %}<svg class="lg-logo" viewBox="0 0 72 72" aria-hidden="true">
+      <defs><linearGradient id="lgl" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#5eead4"/><stop offset="55%" stop-color="#2dd4bf"/><stop offset="100%" stop-color="#0d9488"/>
+      </linearGradient></defs>
+      <g fill="url(#lgl)">
+        <path d="M36 8a28 28 0 0 1 28 28H47a11 11 0 0 0-11-11Z"/>
+        <path d="M64 36a28 28 0 0 1-28 28V53a11 11 0 0 0 11-11Z"/>
+        <path d="M36 64A28 28 0 0 1 8 36h17a11 11 0 0 0 11 11Z"/>
+        <path d="M8 36A28 28 0 0 1 36 8v11a11 11 0 0 0-11 11Z"/>
+      </g></svg>{% endif %}</span>
+    <h1 class="lg-title">به {{ sys_name }} خوش آمدید</h1>
+    <p class="lg-sub">سامانه مدیریت فعالیت‌های امنیتی</p>
+    {% with msgs = get_flashed_messages(with_categories=true) %}
+      {% for cat, m in msgs %}
+      <div class="lg-al {{ cat }}">
+        {% if cat=='success' %}<svg class="ic"><use href="#i-checkc"/></svg>{% else %}<svg class="ic"><use href="#i-alert"/></svg>{% endif %}
+        <span>{{ m }}</span>
+      </div>
+      {% endfor %}
+    {% endwith %}
+    <form method="post" autocomplete="off" id="lg-form" v-cloak>
+      <label for="lg-user">نام کاربری</label>
+      <div class="lg-f">
+        <svg class="ic fi"><use href="#i-user"/></svg>
+        <input type="text" name="username" id="lg-user" required autofocus placeholder="نام کاربری خود را وارد کنید">
+      </div>
+      <label for="pass">رمز عبور</label>
+      <div class="lg-f">
+        <svg class="ic fi"><use href="#i-lock"/></svg>
+        <input type="password" name="password" id="pass" required placeholder="رمز عبور خود را وارد کنید">
+        <button type="button" class="peye" title="نمایش/پنهان رمز" onclick="var i=document.getElementById('pass');i.type=i.type==='password'?'text':'password'">
+          <svg class="ic"><use href="#i-eye-off"/></svg>
+        </button>
+      </div>
+      <div class="lg-row">
+        <label class="lg-ck"><input type="checkbox" id="lg-rem" checked><span>مرا به خاطر بسپار</span></label>
+        <button type="button" class="lg-forgot" id="lg-forgot" onclick="document.getElementById('lg-note2').classList.add('on')">رمز عبور را فراموش کرده‌اید؟</button>
+      </div>
+      <div id="lg-note2" class="lg-note2">برای بازنشانی رمز عبور با مدیر سامانه تماس بگیرید.</div>
+      <button class="lgbtn" type="submit"><span>ورود به سامانه</span><svg class="ic lg-arr"><use href="#i-back"/></svg></button>
+    </form>
+    <div class="lg-dv"></div>
+    <div class="lg-sec"><svg class="ic"><use href="#i-shield"/></svg><span>دسترسی تنها برای کاربران مجاز</span></div>
+  </div>
+  <div class="lg-foot">© مرکز تخصصی آپا دانشگاه صنعتی شاهرود</div>
+</div>
+{% endblock %}
+{% block content %}{% endblock %}
+{% block scripts %}
+<script type="module" src="{{ url_for('static', filename='dist/login.js') }}?v={{ asset_v }}"></script>
+{% endblock %}

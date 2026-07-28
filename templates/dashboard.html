@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block page_title %}<svg class="ic pt-ic"><use href="#i-home"/></svg> داشبورد{% endblock %}
+{% block page_desc %}نمای کلی شاخص‌های تیم — امروز: {{ today_fa }}{% if g.user['role']!='admin' %} (آمار فعالیت‌های شما){% endif %}{% endblock %}
+{% block content %}
+<div class="sec-strip">
+  <span class="ss-i"><svg class="ic"><use href="#i-shield"/></svg></span>
+  <b>{{ sys_name }}</b>
+  <span class="ss-org">مرکز تخصصی آپا دانشگاه صنعتی شاهرود</span>
+  <span class="ss-live"><span class="pulse"></span> سامانه فعال</span>
+</div>
+
+<div id="dash-kpis" v-cloak>
+<div class="grid c4 mb-4">
+  <div class="kpi k-lg"><div class="kic g1"><svg class="ic i23"><use href="#i-doc"/></svg></div><div><div class="num" id="kpi-total">{{ total|fa }}</div><div class="lbl">کل فعالیت‌ها</div></div></div>
+  <div class="kpi k-lg"><div class="kic g2"><svg class="ic i23"><use href="#i-trend"/></svg></div><div><div class="num" id="kpi-month">{{ this_month|fa }}</div><div class="lbl">فعالیت این ماه</div>
+    <span id="kpi-delta" class="delta"></span>{% if this_month == 0 %}<span id="kpi-delta-fb" class="delta flat">فعالیتی در ماه جاری ثبت نشده</span>{% endif %}
+    <span class="kpi-sub" id="kpi-last"></span>{% if this_month == 0 and last_date_fa %}<span class="kpi-sub" id="kpi-last-fb">آخرین فعالیت: {{ last_date_fa }}</span>{% endif %}
+  </div></div>
+  <div class="kpi"><div class="kic g3"><svg class="ic i23"><use href="#i-layers"/></svg></div><div><div class="num" id="kpi-doms">{{ domains_n|fa }}</div><div class="lbl">حوزه‌های فعال</div></div></div>
+  <div class="kpi"><div class="kic g4"><svg class="ic i23"><use href="#i-users"/></svg></div><div><div class="num" id="kpi-users">{{ users_c|fa }}</div><div class="lbl">کاربران</div></div></div>
+</div>
+</div>
+
+<div class="grid c2">
+  <div class="card">
+    <h3><svg class="ic"><use href="#i-clock"/></svg> آخرین فعالیت‌ها<span class="h3-sub">۵ فعالیت اخیر{% if g.user['role']!='admin' %} (شما){% endif %}</span></h3>
+    <div id="dash-acts" v-cloak></div>
+  </div>
+  <div class="card">
+    <h3><svg class="ic"><use href="#i-inbox"/></svg> آخرین ورودهای Excel<span class="h3-sub">۵ ورود اخیر</span></h3>
+    <div id="dash-ups" v-cloak></div>
+  </div>
+</div>
+
+<div class="card">
+  <h3><svg class="ic"><use href="#i-trend"/></svg> میانبر عملیات مهم</h3>
+  <div class="grid c4 g14 mbz">
+    {% if perms.add %}<a class="qa" href="{{ url_for('activity_new') }}"><span class="qic tile t1"><svg class="ic"><use href="#i-plus"/></svg></span><span><b>ثبت فعالیت جدید</b><span>در ۱۳ حوزه امنیتی</span></span></a>{% endif %}
+    {% if perms.import %}<a class="qa" href="{{ url_for('import_excel') }}"><span class="qic tile t5"><svg class="ic"><use href="#i-inbox"/></svg></span><span><b>ورود از Excel</b><span>ثبت گروهی ردیف‌ها</span></span></a>{% endif %}
+    <a class="qa" href="{{ url_for('reports') }}"><span class="qic tile t2"><svg class="ic"><use href="#i-chart"/></svg></span><span><b>گزارش مدیریتی</b><span>Excel / PDF / CSV</span></span></a>
+    {% if g.user['role']=='admin' %}
+    <a class="qa" href="{{ url_for('users') }}"><span class="qic tile t6"><svg class="ic"><use href="#i-users"/></svg></span><span><b>مدیریت کاربران</b><span>مدیر و کارشناس</span></span></a>
+    {% else %}
+    <a class="qa" href="{{ url_for('activities') }}"><span class="qic tile t6"><svg class="ic"><use href="#i-doc"/></svg></span><span><b>فعالیت‌های من</b><span>مشاهده و پیگیری</span></span></a>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card chart-card-hero">
+  <div class="ch-head">
+    <h3><svg class="ic"><use href="#i-trend"/></svg> روند ماهانه فعالیت‌ها<span class="h3-sub">برای مشاهده فعالیت‌های هر ماه روی نقطه آن کلیک کنید</span></h3>
+    <div id="rng-month" v-cloak>
+      <div class="rng" role="group" aria-label="بازه زمانی نمودار">
+      <button type="button" class="rc" data-r="3">۳ ماه</button>
+      <button type="button" class="rc" data-r="6">۶ ماه</button>
+      <button type="button" class="rc on" data-r="12">۱۲ ماه</button>
+      <button type="button" class="rc" data-r="0">همه</button>
+      </div>
+    </div>
+  </div>
+  <div class="chart-box chart-hero" id="ch-month"></div>
+</div>
+
+<div class="grid c2">
+  <div class="card chart-card">
+    <h3><svg class="ic"><use href="#i-chart"/></svg> فعالیت‌ها به تفکیک حوزه</h3>
+    <div class="chart-box" id="ch-acts"></div>
+  </div>
+  <div class="card chart-card">
+    <h3><svg class="ic"><use href="#i-layers"/></svg> سهم هر حوزه</h3>
+    <div class="fl" style="justify-content:center"><div class="chart-box mw-280-mxa" id="ch-dom"></div></div>
+    <div class="legend" id="ch-dom-legend"></div>
+  </div>
+</div>
+
+<div class="grid c2">
+  <div class="card chart-card">
+    <h3><svg class="ic"><use href="#i-checkc"/></svg> نمودار وضعیت<span class="h3-sub">برای فیلتر، روی هر بخش کلیک کنید</span></h3>
+    <div class="fl" style="justify-content:center"><div class="chart-box mw-280-mxa" id="ch-st"></div></div>
+    <div class="legend" id="ch-st-legend"></div>
+  </div>
+  <div class="card chart-card">
+    <h3><svg class="ic"><use href="#i-doc"/></svg> جمع‌بندی</h3>
+    <div class="stat-rows">
+      <div class="st-row"><span class="mute">کل فعالیت‌ها</span><b class="onum ink1">{{ total|fa }}</b></div>
+      <div class="st-row"><span class="mute">فعالیت این ماه</span><b class="onum ink1">{{ this_month|fa }}</b></div>
+      <div class="st-row"><span class="mute">حوزه‌های دارای فعالیت</span><b class="onum ink1">{{ charts.domains|length|fa }}</b></div>
+      <div class="st-row"><span class="mute">کاربران فعال</span><b class="onum ink1">{{ users_c|fa }}</b></div>
+      <div class="st-row"><span class="mute">وضعیت سرویس</span><span class="ss-live sm"><span class="pulse"></span> سامانه فعال</span></div>
+    </div>
+  </div>
+</div>
+
+<script type="application/json" id="dash-data">{{ dash_payload|tojson_script }}</script>
+{% endblock %}
+{% block scripts %}
+<script type="module" src="{{ url_for('static', filename='dist/dashboard.js') }}?v={{ asset_v }}"></script>
+{% endblock %}

@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block page_title %}<svg class="ic pt-ic"><use href="#i-plus"/></svg> ثبت فعالیت جدید{% endblock %}
+{% block page_desc %}{% if domain %}حوزه: {{ domain['name'] }}{% else %}انتخاب حوزه و تکمیل فرم مخصوص آن{% endif %}{% endblock %}
+{% block content %}
+<div class="steps">
+  <div class="step {{ 'done' if domain else 'on' }}">
+    <span class="dot">{% if domain %}<svg class="ic"><use href="#i-check"/></svg>{% else %}۱{% endif %}</span>
+    <span class="lb">انتخاب حوزه</span>
+  </div>
+  <span class="bar"></span>
+  <div class="step {{ 'on' if domain }}">
+    <span class="dot">۲</span>
+    <span class="lb">تکمیل فرم</span>
+  </div>
+  {% if domain and g.user['role']=='admin' %}
+  <a class="btn ghost sm" style="margin-right:auto" href="{{ url_for('fields_page', domain_id=domain['id']) }}"><svg class="ic"><use href="#i-sliders"/></svg> مدیریت فیلدهای این حوزه</a>
+  {% endif %}
+</div>
+
+{% if not domain %}
+<div class="step-note"><svg class="ic"><use href="#i-layers"/></svg><div>حوزه امنیتی را انتخاب کنید — فرم مخصوص همان حوزه نمایش داده می‌شود.</div></div>
+{% endif %}
+
+<div id="aform-app" v-cloak></div>
+{% if not domain %}
+<script type="application/json" id="aform-data">{{ {
+  'mode': 'choose',
+  'domains': domains_json,
+  'new_url': url_for('activity_new'),
+  'admin': g.user['role']=='admin',
+  'domains_url': url_for('domains_page')
+}|tojson_script }}</script>
+{% else %}
+<script type="application/json" id="aform-data">{{ {
+  'mode': 'new',
+  'change_url': url_for('activity_new'),
+  'back_url': url_for('activities'),
+  'domain': {'name': domain['name'], 'icon': domain_icon(domain['name'])},
+  'fields': fields_json,
+  'posted': posted,
+  'vals': {},
+  'dvals': dvals,
+  'admin': g.user['role']=='admin',
+  'users': users_json,
+  'self_id': g.user['id'],
+  'statuses': statuses,
+  'today': {'y': today_jalali[0]|string, 'm': '%02d' % today_jalali[1], 'd': '%02d' % today_jalali[2]},
+  'months': jalali_months[1:],
+  'user_name': g.user['full_name'],
+  'submit_label': 'ثبت فعالیت',
+  'cancel_label': 'انصراف'
+}|tojson_script }}</script>
+{% endif %}
+{% endblock %}
+{% block scripts %}
+<script type="module" src="{{ url_for('static', filename='dist/activity-form.js') }}?v={{ asset_v }}"></script>
+{% endblock %}

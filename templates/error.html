@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block page_title %}{% endblock %}
+{% block content %}
+<div class="card"><div class="empty">
+  <div class="err-code">{{ code|fa }}</div>
+  <div class="eic"><svg class="ic i88 {{ 'pri-c' if code==403 else 'ink3' }}"><use href="#{{ 'i-alert' if code==403 else 'i-search' }}"/></svg></div>
+  <div class="fs16 fw7 ink1">{{ msg }}</div>
+  <div class="mute">در صورت تکرار مشکل، با مدیر سامانه تماس بگیرید.</div>
+  <a href="{{ url_for('dashboard') }}" class="btn pri mt-4"><svg class="ic"><use href="#i-home"/></svg> بازگشت به داشبورد</a>
+</div></div>
+{% endblock %}

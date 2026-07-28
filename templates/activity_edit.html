@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block page_title %}<svg class="ic pt-ic"><use href="#i-pencil"/></svg> ویرایش «{{ a['title'] or 'فعالیت' }}»{% endblock %}
+{% block page_desc %}حوزه: {{ a['domain_name'] }} — مالک: {{ a['expert_name'] }}{% endblock %}
+{% block page_actions %}
+{% if g.user['role']=='admin' %}
+<a class="btn ghost sm" href="{{ url_for('fields_page', domain_id=a['domain_id']) }}"><svg class="ic"><use href="#i-sliders"/></svg> مدیریت فیلدهای این حوزه</a>
+{% endif %}
+<a class="btn ghost sm" href="{{ url_for('activity_view', activity_id=a['id']) }}"><svg class="ic"><use href="#i-eye"/></svg> مشاهده فعالیت</a>
+{% endblock %}
+{% block content %}
+<div class="two-col">
+  <div id="aform-app" v-cloak></div>
+  <script type="application/json" id="aform-data">{{ {
+    'mode': 'edit',
+    'back_url': url_for('activity_view', activity_id=a['id']),
+    'fields': fields_json,
+    'posted': posted,
+    'vals': vals,
+    'dvals': dvals,
+    'admin': g.user['role']=='admin',
+    'users': users_json,
+    'current_owner': a['user_id'],
+    'statuses': statuses,
+    'current_status': a['status'],
+    'today': {'y': today_jalali[0]|string, 'm': '%02d' % today_jalali[1], 'd': '%02d' % today_jalali[2]},
+    'months': jalali_months[1:],
+    'user_name': g.user['full_name'],
+    'submit_label': 'ذخیره تغییرات',
+    'cancel_label': 'بازگشت'
+  }|tojson_script }}</script>
+
+  <div class="card">
+    <h3><svg class="ic"><use href="#i-clip"/></svg> فایل‌های ضمیمه ({{ atts|length|fa }})</h3>
+    {% if atts %}
+    <ul class="attach-list">
+      {% for t in atts %}
+      <li>
+        <span class="nih" style="max-width:190px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><svg class="ic dic"><use href="#i-file"/></svg>{{ t['original_name'] }} <span class="mute">({{ ((t['size'] or 0)/1024)|round(0,'floor')|int|fa }} KB)</span></span>
+        <span class="btn-row">
+          <a class="btn ghost icon" href="{{ url_for('attachment_download', att_id=t['id']) }}" title="دانلود"><svg class="ic"><use href="#i-download"/></svg></a>
+          {% if g.user['role']=='admin' or t['uploaded_by']==g.user['id'] %}
+          <form method="post" action="{{ url_for('attachment_delete', att_id=t['id']) }}" onsubmit="return confirm('حذف فایل؟')"><button class="btn danger icon" title="حذف"><svg class="ic"><use href="#i-trash"/></svg></button></form>
+          {% endif %}
+        </span>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}<div class="mute mb-3">هنوز فایلی پیوست نشده است.</div>{% endif %}
+    <form method="post" action="{{ url_for('attachment_upload', activity_id=a['id']) }}" enctype="multipart/form-data" class="mt-3">
+      <label>افزودن فایل (PDF, Word, Excel, JPG, PNG, ZIP)</label>
+      <input type="file" name="files" multiple class="mb-3">
+      <button class="btn ok sm" type="submit"><svg class="ic"><use href="#i-upload"/></svg> بارگذاری</button>
+    </form>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script type="module" src="{{ url_for('static', filename='dist/activity-form.js') }}?v={{ asset_v }}"></script>
+{% endblock %}

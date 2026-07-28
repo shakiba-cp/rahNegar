@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% from "macros.html" import date_trip, dicon with context %}
+{% block page_title %}<svg class="ic pt-ic"><use href="#i-chart"/></svg> گزارش‌ها{% endblock %}
+{% block page_desc %}گزارش مدیریتی بر اساس فیلترهای دلخواه + خروجی Excel / PDF / CSV{% endblock %}
+{% block content %}
+<div class="card">
+  <form class="filters" method="get">
+    <div class="f sm"><label>حوزه</label>
+      <select name="domain">
+        <option value="">همه حوزه‌ها</option>
+        {% for d in domains %}<option value="{{ d['id'] }}" {{ 'selected' if request.args.get('domain')|int == d['id'] }}>{{ d['name'] }}</option>{% endfor %}
+      </select></div>
+    <div class="f sm"><label>وضعیت</label>
+      <select name="status">
+        <option value="">همه</option>
+        {% for s in STATUSES %}<option value="{{ s }}" {{ 'selected' if request.args.get('status')==s }}>{{ s }}</option>{% endfor %}
+      </select></div>
+    {% if g.user['role']=='admin' %}
+    <div class="f sm"><label>کارشناس</label>
+      <select name="expert">
+        <option value="">همه</option>
+        {% for u in users %}<option value="{{ u['id'] }}" {{ 'selected' if request.args.get('expert')|int == u['id'] }}>{{ u['full_name'] }}</option>{% endfor %}
+      </select></div>
+    {% endif %}
+    <div class="f sm"><label>&nbsp;</label><button class="btn pri" type="submit"><svg class="ic"><use href="#i-doc"/></svg> تهیه گزارش</button></div>
+    <div class="f sm"><label>&nbsp;</label><a href="{{ url_for('reports') }}" class="btn ghost">پاک‌سازی</a></div>
+    <details class="adv full" {{ 'open' if request.args.get('ticket') or request.args.get('from__y') or request.args.get('to__y') or request.args.get('attach') }}>
+      <summary><svg class="ic"><use href="#i-sliders"/></svg> فیلترهای پیشرفته (تاریخ، تیکت، ضمیمه)</summary>
+      <div class="adv-body">
+        <div class="f sm"><label>شماره تیکت</label><input type="text" name="ticket" value="{{ request.args.get('ticket','') }}" placeholder="مثلاً 4321"></div>
+        <div class="f"><label>از تاریخ</label>{{ date_trip('from_', {'y': request.args.get('from__y',''), 'm': request.args.get('from__m',''), 'd': request.args.get('from__d','')}) }}</div>
+        <div class="f"><label>تا تاریخ</label>{{ date_trip('to_', {'y': request.args.get('to__y',''), 'm': request.args.get('to__m',''), 'd': request.args.get('to__d','')}) }}</div>
+        <div class="f sm"><label>ضمیمه</label>
+          <select name="attach">
+            <option value="">همه</option>
+            <option value="1" {{ 'selected' if request.args.get('attach')=='1' }}>فقط دارای فایل ضمیمه</option>
+          </select></div>
+        <div class="f sm"><label>&nbsp;</label><button class="btn pri sm" type="submit"><svg class="ic"><use href="#i-check"/></svg> اعمال</button></div>
+      </div>
+    </details>
+  </form>
+</div>
+
+{% if g.user['role']=='admin' and export_headers %}
+<div class="card">
+  <h3><svg class="ic"><use href="#i-sliders"/></svg> ستون‌های خروجی (فقط مدیر)</h3>
+  <div id="cols-app" v-cloak></div>
+  <script type="application/json" id="cols-data">{{ {'headers': export_headers, 'base': base_cols}|tojson_script }}</script>
+  <div class="btn-row">
+    <details class="expdrop" id="exp-app">
+      <summary class="btn pri"><svg class="ic"><use href="#i-download"/></svg> خروجی <svg class="ic i14"><use href="#i-down"/></svg></summary>
+      <div class="expmenu">
+        <button type="button" data-exp="excel"><svg class="ic"><use href="#i-download"/></svg> Excel</button>
+        <button type="button" data-exp="csv"><svg class="ic"><use href="#i-file"/></svg> CSV</button>
+        <button type="button" data-exp="pdf"><svg class="ic"><use href="#i-printer"/></svg> PDF (با نمودار)</button>
+      </div>
+    </details>
+  </div>
+</div>
+{% endif %}
+
+<div class="card">
+  <div class="flb mb-3">
+    <span class="cnt-badge"><svg class="ic"><use href="#i-doc"/></svg><b class="onum">{{ total|fa }}</b> فعالیت یافت شد{% if g.user['role']!='admin' %} (فعالیت‌های شما){% endif %}</span>
+    <div class="btn-row no-print">
+      {% if g.user['role']!='admin' or not export_headers %}
+      <a class="btn ghost" href="{{ url_for('reports', export='excel', **request.args) }}"><svg class="ic"><use href="#i-download"/></svg> خروجی Excel</a>
+      <a class="btn ghost" href="{{ url_for('reports', export='csv', **request.args) }}"><svg class="ic"><use href="#i-file"/></svg> خروجی CSV</a>
+      <a class="btn ghost" href="{{ url_for('reports', export='pdf', **request.args) }}"><svg class="ic"><use href="#i-printer"/></svg> خروجی PDF</a>
+      {% else %}
+      <span class="mute">خروجی: از کارت «ستون‌های خروجی» بالا</span>
+      {% endif %}
+    </div>
+  </div>
+  <div id="reps-app" v-cloak></div>
+  <script type="application/json" id="reps-data">{{ {'rows': acts_json}|tojson_script }}</script>
+</div>
+{% endblock %}
+{% block scripts %}
+<script type="module" src="{{ url_for('static', filename='dist/reports.js') }}?v={{ asset_v }}"></script>
+{% endblock %}

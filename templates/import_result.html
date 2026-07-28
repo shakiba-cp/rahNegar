@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% from "macros.html" import dicon with context %}
+{% block page_title %}<svg class="ic pt-ic"><use href="#i-inbox"/></svg> نتیجه ورود Excel{% endblock %}
+{% block page_desc %}خلاصه پردازش فایل «{{ imp['filename'] }}»{% endblock %}
+{% block content %}
+<div class="card">
+  <h3><svg class="ic"><use href="#i-file"/></svg> فایل: {{ imp['filename'] }}</h3>
+  <div class="mute mb-4">
+    حوزه: {{ dicon(imp['domain_name']) }}{{ imp['domain_name'] }} •
+    کاربر: {{ imp['full_name'] }} • زمان: {{ imp['imported_at']|jdatetime }}
+  </div>
+  <div class="grid c3">
+    <div class="kpi"><div class="kic g6"><svg class="ic i22"><use href="#i-doc"/></svg></div><div><div class="num">{{ (imp['total_rows'] or 0)|fa }}</div><div class="lbl">تعداد کل ردیف‌ها</div></div></div>
+    <div class="kpi"><div class="kic g2"><svg class="ic i22"><use href="#i-checkc"/></svg></div><div><div class="num">{{ (imp['success_rows'] or 0)|fa }}</div><div class="lbl">ثبت موفق</div></div></div>
+    <div class="kpi"><div class="kic" style="background:linear-gradient(135deg,#f43f5e,#be123c)"><svg class="ic i22"><use href="#i-alert"/></svg></div><div><div class="num">{{ (imp['error_rows'] or 0)|fa }}</div><div class="lbl">ثبت ناموفق</div></div></div>
+  </div>
+  {% if imp['total_rows'] %}
+  <div class="progress mt-5"><div style="width:{{ (100 * imp['success_rows'] / imp['total_rows'])|round(0,'floor') }}{{'%'}}"></div></div>
+  <div class="mute mt-2">{{ ((100 * imp['success_rows'] / imp['total_rows'])|round(0,'floor'))|fa }}٪ موفق</div>
+  {% endif %}
+</div>
+
+{% if errs %}
+<div class="card">
+  <h3><svg class="ic" style="color:var(--bad)"><use href="#i-alert"/></svg> ردیف‌های دارای خطا ({{ errs|length|fa }})</h3>
+  <ul style="padding-right:20px;font-size:12.5px;color:#9f1239;line-height:2.1">
+    {% for e in errs[:60] %}<li>{{ e }}</li>{% endfor %}
+    {% if errs|length > 60 %}<li class="mute">… و {{ (errs|length - 60)|fa }} مورد دیگر</li>{% endif %}
+  </ul>
+</div>
+{% endif %}
+
+<div class="btn-row">
+  <a class="btn pri" href="{{ url_for('import_excel') }}"><svg class="ic"><use href="#i-inbox"/></svg> ورود فایل جدید</a>
+  <a class="btn ghost" href="{{ url_for('activities') }}"><svg class="ic"><use href="#i-pencil"/></svg> مشاهده فعالیت‌ها</a>
+</div>
+{% endblock %}

@@ -1,0 +1,170 @@
+{
+  "_TripSelects-BhfXsnBg.js": {
+    "file": "shared/TripSelects-BhfXsnBg.js",
+    "name": "TripSelects",
+    "imports": [
+      "__plugin-vue_export-helper-C1S044vv.js",
+      "_jalali-d6sS0FuO.js"
+    ]
+  },
+  "__plugin-vue_export-helper-C1S044vv.js": {
+    "file": "shared/_plugin-vue_export-helper-C1S044vv.js",
+    "name": "_plugin-vue_export-helper"
+  },
+  "_jalali-d6sS0FuO.js": {
+    "file": "shared/jalali-d6sS0FuO.js",
+    "name": "jalali",
+    "imports": [
+      "__plugin-vue_export-helper-C1S044vv.js"
+    ]
+  },
+  "_mount-D9i72yqP.js": {
+    "file": "shared/mount-D9i72yqP.js",
+    "name": "mount",
+    "imports": [
+      "__plugin-vue_export-helper-C1S044vv.js"
+    ]
+  },
+  "src/pages/activities/entry.js": {
+    "file": "activities.js",
+    "name": "activities",
+    "src": "src/pages/activities/entry.js",
+    "isEntry": true,
+    "imports": [
+      "__plugin-vue_export-helper-C1S044vv.js",
+      "_TripSelects-BhfXsnBg.js",
+      "_jalali-d6sS0FuO.js"
+    ]
+  },
+  "src/pages/activity-form/entry.js": {
+    "file": "activity-form.js",
+    "name": "activity-form",
+    "src": "src/pages/activity-form/entry.js",
+    "isEntry": true,
+    "imports": [
+      "__plugin-vue_export-helper-C1S044vv.js",
+      "_TripSelects-BhfXsnBg.js",
+      "_jalali-d6sS0FuO.js"
+    ]
+  },
+  "src/pages/activity-view/entry.js": {
+    "file": "activity-view.js",
+    "name": "activity-view",
+    "src": "src/pages/activity-view/entry.js",
+    "isEntry": true,
+    "imports": [
+      "__plugin-vue_export-helper-C1S044vv.js"
+    ]
+  },
+  "src/pages/dashboard/entry.js": {
+    "file": "dashboard.js",
+    "name": "dashboard",
+    "src": "src/pages/dashboard/entry.js",
+    "isEntry": true,
+    "imports": [
+      "__plugin-vue_export-helper-C1S044vv.js",
+      "_mount-D9i72yqP.js"
+    ]
+  },
+  "src/pages/domains/entry.js": {
+    "file": "domains.js",
+    "name": "domains",
+    "src": "src/pages/domains/entry.js",
+    "isEntry": true,
+    "imports": [
+      "__plugin-vue_export-helper-C1S044vv.js"
+    ]
+  },
+  "src/pages/fields/entry.js": {
+    "file": "fields.js",
+    "name": "fields",
+    "src": "src/pages/fields/entry.js",
+    "isEntry": true,
+    "imports": [
+      "__plugin-vue_export-helper-C1S044vv.js"
+    ]
+  },
+  "src/pages/import/entry.js": {
+    "file": "import.js",
+    "name": "import",
+    "src": "src/pages/import/entry.js",
+    "isEntry": true,
+    "imports": [
+      "__plugin-vue_export-helper-C1S044vv.js"
+    ]
+  },
+  "src/pages/login/entry.js": {
+    "file": "login.js",
+    "name": "login",
+    "src": "src/pages/login/entry.js",
+    "isEntry": true,
+    "imports": [
+      "__plugin-vue_export-helper-C1S044vv.js"
+    ]
+  },
+  "src/pages/report-print/entry.js": {
+    "file": "report-print.js",
+    "name": "report-print",
+    "src": "src/pages/report-print/entry.js",
+    "isEntry": true,
+    "imports": [
+      "__plugin-vue_export-helper-C1S044vv.js",
+      "_mount-D9i72yqP.js"
+    ]
+  },
+  "src/pages/reports/entry.js": {
+    "file": "reports.js",
+    "name": "reports",
+    "src": "src/pages/reports/entry.js",
+    "isEntry": true,
+    "imports": [
+      "__plugin-vue_export-helper-C1S044vv.js"
+    ]
+  },
+  "src/pages/settings/entry.js": {
+    "file": "settings.js",
+    "name": "settings",
+    "src": "src/pages/settings/entry.js",
+    "isEntry": true,
+    "imports": [
+      "__plugin-vue_export-helper-C1S044vv.js"
+    ]
+  },
+  "src/pages/tasks/entry.js": {
+    "file": "tasks.js",
+    "name": "tasks",
+    "src": "src/pages/tasks/entry.js",
+    "isEntry": true,
+    "imports": [
+      "__plugin-vue_export-helper-C1S044vv.js"
+    ]
+  },
+  "src/pages/user-form/entry.js": {
+    "file": "user-form.js",
+    "name": "user-form",
+    "src": "src/pages/user-form/entry.js",
+    "isEntry": true,
+    "imports": [
+      "__plugin-vue_export-helper-C1S044vv.js"
+    ]
+  },
+  "src/pages/users/entry.js": {
+    "file": "users.js",
+    "name": "users",
+    "src": "src/pages/users/entry.js",
+    "isEntry": true,
+    "imports": [
+      "__plugin-vue_export-helper-C1S044vv.js"
+    ]
+  },
+  "src/shell/entry.js": {
+    "file": "shell.js",
+    "name": "shell",
+    "src": "src/shell/entry.js",
+    "isEntry": true,
+    "imports": [
+      "__plugin-vue_export-helper-C1S044vv.js",
+      "_jalali-d6sS0FuO.js"
+    ]
+  }
+}

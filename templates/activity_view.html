@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block page_title %}<svg class="ic pt-ic"><use href="#i-eye"/></svg> {{ a['title'] or 'جزئیات فعالیت' }}{% endblock %}
+{% block page_desc %}{{ a['domain_name'] }} • ثبت {{ a['created_at']|jdatetime }} • به‌روزرسانی {{ a['updated_at']|jdatetime }}{% endblock %}
+{% block page_actions %}
+<a class="btn ghost sm" href="{{ url_for('activities') }}"><svg class="ic"><use href="#i-back"/></svg> بازگشت</a>
+{% if g.user['id'] == a['user_id'] and a['status'] != 'انجام شده' %}
+<form method="post" action="{{ url_for('activity_complete', activity_id=a['id']) }}"><button class="btn ok sm"><svg class="ic"><use href="#i-check"/></svg> انجام شد</button></form>
+{% endif %}
+{% if perms.edit %}<a class="btn pri sm" href="{{ url_for('activity_edit', activity_id=a['id']) }}"><svg class="ic"><use href="#i-pencil"/></svg> ویرایش</a>{% endif %}
+{% if perms.delete %}
+<form method="post" action="{{ url_for('activity_delete', activity_id=a['id']) }}" onsubmit="return confirm('حذف این فعالیت؟')"><button class="btn danger sm"><svg class="ic"><use href="#i-trash"/></svg> حذف</button></form>
+{% endif %}
+{% endblock %}
+{% block content %}
+{% if a['created_by'] and creator and a['created_by'] != a['user_id'] %}
+<div class="flash warning"><svg class="ic"><use href="#i-alert"/></svg><span>تسک تخصیص‌یافته از «{{ creator['full_name'] }}» به «{{ a['expert_name'] }}»</span></div>
+{% if a['task_note'] %}
+<div class="tnote">
+  <div class="tnote-h"><svg class="ic"><use href="#i-ticket"/></svg> توضیحات تسک — از طرف «{{ creator['full_name'] }}»</div>
+  <p class="prew">{{ a['task_note'] }}</p>
+</div>
+{% endif %}
+{% endif %}
+<div id="aview-app" v-cloak></div>
+<script type="application/json" id="aview-data">{{ view_json|tojson_script }}</script>
+{% endblock %}
+{% block scripts %}
+<script type="module" src="{{ url_for('static', filename='dist/activity-view.js') }}?v={{ asset_v }}"></script>
+{% endblock %}

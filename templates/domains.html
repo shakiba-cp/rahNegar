@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block page_title %}<svg class="ic pt-ic"><use href="#i-layers"/></svg> مدیریت حوزه‌ها{% endblock %}
+{% block page_desc %}افزودن، ویرایش و فعال/غیرفعال‌سازی حوزه‌ها و فیلدهای هر حوزه{% endblock %}
+{% block content %}
+<div class="card">
+  <form method="post" class="filters mb-5">
+    <div class="f"><label>افزودن حوزه جدید</label><input type="text" name="name" placeholder="نام حوزه..." required></div>
+    <div class="f sm"><label>&nbsp;</label><button class="btn pri" type="submit"><svg class="ic"><use href="#i-plus"/></svg> افزودن</button></div>
+    <div class="f sm"><label>&nbsp;</label><a class="btn ghost" href="{{ url_for('settings') }}"><svg class="ic"><use href="#i-back"/></svg> بازگشت به تنظیمات</a></div>
+  </form>
+  <div id="doms-app" v-cloak></div>
+  <script type="application/json" id="doms-data">{{ {'rows': domains_json}|tojson_script }}</script>
+</div>
+{% endblock %}
+{% block scripts %}
+<script type="module" src="{{ url_for('static', filename='dist/domains.js') }}?v={{ asset_v }}"></script>
+{% endblock %}

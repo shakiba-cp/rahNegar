@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}{{ sys_name }}{% endblock %}</title>
+<script>try{if(localStorage.getItem('secman-theme')==='dark')document.documentElement.dataset.theme='dark'}catch(e){}</script>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%230f766e' d='M12 22s8-3.6 8-9.5V5.2L12 2 4 5.2v7.3C4 18.4 12 22 12 22Z'/%3E%3Cpath fill='none' stroke='%23fff' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round' d='m9 11.5 2 2 4-4.5'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}?v={{ asset_v }}">
+</head>
+<body>
+{# ============ اسپرایت آیکن‌ها (SVG symbols) ============ #}
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h5v-6h4v6h5V9.5"/></symbol>
+  <symbol id="i-pencil" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></symbol>
+  <symbol id="i-chart" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M8 17V9"/><path d="M13 17V5"/><path d="M18 17v-7"/></symbol>
+  <symbol id="i-inbox" viewBox="0 0 24 24"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.5 5.1 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.5-6.9A2 2 0 0 0 16.7 4H7.3a2 2 0 0 0-1.8 1.1Z"/></symbol>
+  <symbol id="i-users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
+  <symbol id="i-user" viewBox="0 0 24 24"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></symbol>
+  <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3"/><path d="M1 14h6M9 8h6M17 16h6"/></symbol>
+  <symbol id="i-cal" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></symbol>
+  <symbol id="i-logout" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 22s8-3.6 8-9.5V5.2L12 2 4 5.2v7.3C4 18.4 12 22 12 22Z"/><path d="m9 11.5 2 2 4-4.5" stroke-width="1.8"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4-4"/></symbol>
+  <symbol id="i-doc" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/><path d="M8 13h8M8 17h5"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/></symbol>
+  <symbol id="i-trend" viewBox="0 0 24 24"><path d="M22 7l-8.5 8.5-5-5L2 17"/><path d="M16 7h6v6"/></symbol>
+  <symbol id="i-layers" viewBox="0 0 24 24"><path d="M12 2 2 7l10 5 10-5-10-5Z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+  <symbol id="i-checkc" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m8.5 12.2 2.4 2.4 4.6-5"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M10 11v6M14 11v6"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></symbol>
+  <symbol id="i-upload" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m17 8-5-5-5 5"/><path d="M12 3v12"/></symbol>
+  <symbol id="i-printer" viewBox="0 0 24 24"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></symbol>
+  <symbol id="i-send" viewBox="0 0 24 24"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4Z"/></symbol>
+  <symbol id="i-clip" viewBox="0 0 24 24"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></symbol>
+  <symbol id="i-alert-tri" viewBox="0 0 24 24"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4M12 17h.01"/></symbol>
+  <symbol id="i-msg" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2Z"/></symbol>
+  <symbol id="i-filter" viewBox="0 0 24 24"><path d="M22 3H2l8 9.5V19l4 2v-8.5Z"/></symbol>
+  <symbol id="i-ticket" viewBox="0 0 24 24"><path d="M2 9a3 3 0 0 1 0 6v3a1 1 0 0 0 1 1h18a1 1 0 0 0 1-1v-3a3 3 0 0 1 0-6V6a1 1 0 0 0-1-1H3a1 1 0 0 0-1 1Z"/><path d="M13 5v2M13 11v2M13 17v2"/></symbol>
+  <symbol id="i-back" viewBox="0 0 24 24"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></symbol>
+  <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></symbol>
+  <symbol id="i-down" viewBox="0 0 24 24"><path d="M12 5v14"/><path d="m19 12-7 7-7-7"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="i-eye-off" viewBox="0 0 24 24"><path d="M9.9 4.24A9.2 9.2 0 0 1 12 4c7 0 10 8 10 8a18.5 18.5 0 0 1-2.16 3.19"/><path d="M6.61 6.61A13.5 13.5 0 0 0 2 12s3 8 10 8a9.74 9.74 0 0 0 5.39-1.61"/><path d="m2 2 20 20"/><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
+  <symbol id="i-wrench" viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76Z"/></symbol>
+  <symbol id="i-cap" viewBox="0 0 24 24"><path d="M22 10 12 5 2 10l10 5 10-5Z"/><path d="M6 12.5V17c0 1.7 2.7 3 6 3s6-1.3 6-3v-4.5"/><path d="M22 10v6"/></symbol>
+  <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a14 14 0 0 1 0 18"/><path d="M12 3a14 14 0 0 0 0 18"/></symbol>
+  <symbol id="i-bug" viewBox="0 0 24 24"><path d="m8 2 1.88 1.88"/><path d="M14.12 3.88 16 2"/><path d="M9 7.13V6a3 3 0 1 1 6 0v1"/><path d="M12 20c-3.3 0-6-2.7-6-6v-3a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v3c0 3.3-2.7 6-6 6Z"/><path d="M12 20v-9"/><path d="M6.53 9C4.6 8.8 3 7.1 3 5"/><path d="M6 13H2"/><path d="M3 21c0-2.1 1.7-3.9 3.8-4"/><path d="M20.97 5c0 2.1-1.6 3.8-3.5 4"/><path d="M22 13h-4"/><path d="M17.2 17c2.1.1 3.8 1.9 3.8 4"/></symbol>
+  <symbol id="d-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.2"/></symbol>
+  <symbol id="d-news" viewBox="0 0 24 24"><path d="M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 1-4 0V9"/><path d="M18 14h-8"/><path d="M15 18h-5"/><path d="M10 6h8v4h-8V6Z"/></symbol>
+  <symbol id="d-phone" viewBox="0 0 24 24"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M12 18h.01"/></symbol>
+  <symbol id="d-scan" viewBox="0 0 24 24"><path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M3 12h18"/></symbol>
+  <symbol id="d-headset" viewBox="0 0 24 24"><path d="M3 14v-2a9 9 0 0 1 18 0v2"/><path d="M21 14a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-1a2 2 0 0 1 2-2h3Z"/><path d="M3 14a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-1a2 2 0 0 0-2-2H3Z"/></symbol>
+  <symbol id="d-clip" viewBox="0 0 24 24"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M12 11h4M12 16h4"/><path d="M8 11h.01M8 16h.01"/></symbol>
+  <symbol id="d-call" viewBox="0 0 24 24"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92Z"/></symbol>
+  <symbol id="d-box" viewBox="0 0 24 24"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4a2 2 0 0 0 2-2V8Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22M4.6 4.6l1.8 1.8M17.6 17.6l1.8 1.8M19.4 4.6l-1.8 1.8M6.4 17.6l-1.8 1.8"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20.5 14.5A8.5 8.5 0 0 1 9.5 3.5a8.5 8.5 0 1 0 11 11Z"/></symbol>
+  <symbol id="i-empty" viewBox="0 0 120 120"><rect x="26" y="14" width="68" height="88" rx="8" fill="none" stroke="#cdd4e3" stroke-width="3"/><line x1="40" y1="34" x2="80" y2="34" stroke="#e4e9f2" stroke-width="5" stroke-linecap="round"/><line x1="40" y1="50" x2="80" y2="50" stroke="#e4e9f2" stroke-width="5" stroke-linecap="round"/><line x1="40" y1="66" x2="64" y2="66" stroke="#e4e9f2" stroke-width="5" stroke-linecap="round"/><circle cx="82" cy="84" r="18" fill="#fff" stroke="#a9b4cc" stroke-width="4"/><line x1="95" y1="97" x2="108" y2="110" stroke="#a9b4cc" stroke-width="6" stroke-linecap="round"/></symbol>
+</svg>
+
+{% block page %}
+<div class="layout">
+  {# هدر: SSR ساده (fallback بدون JS) — با mount پوسته Vue، رفتار کامل می‌گیرد #}
+  <header class="gnav">
+    <div class="gnav-in">
+      <button type="button" class="hamb" aria-label="منو"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+      <a class="gbrand" href="{{ url_for('dashboard') }}" title="{{ sys_name }}">
+        {% if has_logo %}<img src="{{ url_for('logo') }}" alt="{{ sys_name }}">{% else %}<span class="bmark"><svg class="ic"><use href="#i-shield"/></svg></span>{% endif %}
+        <b>{{ sys_name }}</b>
+      </a>
+      <nav class="gmenu" id="gmenu" aria-label="ناوبری اصلی">
+        <a href="{{ url_for('dashboard') }}" class="{{ 'active' if request.endpoint=='dashboard' }}"><svg class="ic"><use href="#i-home"/></svg><span>داشبورد</span></a>
+        <a href="{{ url_for('activities') }}" class="{{ 'active' if request.endpoint in ('activities','activity_view','activity_edit','activity_new') }}"><svg class="ic"><use href="#i-pencil"/></svg><span>فعالیت‌ها</span>{% if nav_tasks %}<span class="nb" title="تسک‌های باز تخصیص‌یافته به شما">{{ nav_tasks|fa }}</span>{% endif %}</a>
+        <a href="{{ url_for('tasks_page') }}" class="{{ 'active' if request.endpoint=='tasks_page' }}"><svg class="ic"><use href="#i-ticket"/></svg><span>{{ 'تخصیص تسک' if g.user['role']=='admin' else 'تسک‌های من' }}</span>{% if nav_tasks %}<span class="nb" title="تسک‌های باز تخصیص‌یافته به شما">{{ nav_tasks|fa }}</span>{% endif %}</a>
+        <a href="{{ url_for('reports') }}" class="{{ 'active' if request.endpoint=='reports' }}"><svg class="ic"><use href="#i-chart"/></svg><span>گزارش‌ها</span></a>
+        {% if perms.import %}<a href="{{ url_for('import_excel') }}" class="{{ 'active' if request.endpoint in ('import_excel','import_result') }}"><svg class="ic"><use href="#i-inbox"/></svg><span>ورود از Excel</span></a>{% endif %}
+        {% if g.user and g.user['role']=='admin' %}
+        <div class="gdd" id="gdd">
+          <a class="gd-l {{ 'active' if request.endpoint in ('manage','users','user_new','user_edit','settings','domains_page','fields_page') }}" href="{{ url_for('manage') }}"><svg class="ic"><use href="#i-sliders"/></svg><span>مدیریت</span></a>
+          <button type="button" class="gd-c" aria-label="بازکردن منوی مدیریت"><svg class="ic chv"><use href="#i-down"/></svg></button>
+          <div class="gdd-menu">
+            <a href="{{ url_for('manage') }}" class="{{ 'on' if request.endpoint=='manage' }}"><svg class="ic"><use href="#i-home"/></svg> پیشخوان مدیریت</a>
+            <a href="{{ url_for('users') }}" class="{{ 'on' if request.endpoint in ('users','user_edit') }}"><svg class="ic"><use href="#i-users"/></svg> کاربران</a>
+            <a href="{{ url_for('user_new') }}" class="{{ 'on' if request.endpoint=='user_new' }}"><svg class="ic"><use href="#i-plus"/></svg> کاربر جدید</a>
+            <a href="{{ url_for('settings') }}" class="{{ 'on' if request.endpoint in ('settings','domains_page','fields_page') }}"><svg class="ic"><use href="#i-wrench"/></svg> تنظیمات</a>
+          </div>
+        </div>
+        {% endif %}
+      </nav>
+      <form class="gsearch" method="get" action="{{ url_for('activities') }}" role="search">
+        <svg class="ic"><use href="#i-search"/></svg>
+        <input type="text" name="q" id="gsearch-in" placeholder="جستجوی فعالیت..." autocomplete="off"
+               value="{{ request.args.get('q','') if request.endpoint=='activities' else '' }}">
+        <kbd>/</kbd>
+      </form>
+      <div class="gside">
+        <span class="gchip"><svg class="ic"><use href="#i-cal"/></svg><span>{{ today_fa_str }}</span></span>
+        <button type="button" class="gbtn" id="themeToggle" title="تغییر تم روشن / تیره" aria-label="تغییر تم">
+          <svg class="ic i16" data-th="moon"><use href="#i-moon"/></svg>
+          <svg class="ic i16 hide" data-th="sun"><use href="#i-sun"/></svg>
+        </button>
+        <a class="guser" href="{{ url_for('profile') }}" title="پروفایل من — ویرایش نام نمایشی و رمز عبور">
+          <span class="avatar" title="{{ g.user['full_name'] }}">{{ g.user['full_name'][0] }}</span>
+          <span class="uinfo"><b>{{ g.user['full_name'] }}</b><i>{{ 'مدیر' if g.user['role']=='admin' else ('کارآموز' if g.user['is_trainee'] else 'کارشناس') }}</i></span>
+          <svg class="ic i16 guser-ic"><use href="#i-user"/></svg>
+        </a>
+        <a href="{{ url_for('logout') }}" class="gbtn tbtn-out" title="خروج از حساب" aria-label="خروج"><svg class="ic i16"><use href="#i-logout"/></svg></a>
+      </div>
+    </div>
+  </header>
+  <div class="main">
+    <div class="content">
+      {% set crumb_map = {'dashboard':('داشبورد',null),'activities':('فعالیت‌ها',null),
+        'activity_view':('فعالیت‌ها','جزئیات فعالیت'),'activity_edit':('فعالیت‌ها','ویرایش فعالیت'),
+        'activity_new':('فعالیت‌ها','ثبت فعالیت'),'reports':('گزارش‌ها',null),
+        'manage':('مدیریت',null),'profile':('پروفایل من',null),
+        'tasks_page':('تخصیص تسک' if g.user['role']=='admin' else 'تسک‌های من',null),
+        'import_excel':('ورود از Excel',null),'import_result':('ورود از Excel','نتیجه ورود'),
+        'users':('کاربران',null),'user_new':('کاربران','کاربر جدید'),'user_edit':('کاربران','ویرایش کاربر'),
+        'settings':('تنظیمات',null),'domains_page':('تنظیمات','مدیریت حوزه‌ها'),'fields_page':('تنظیمات','مدیریت فیلدها')} %}
+      {% set back_map = {'manage':('dashboard','داشبورد'),
+        'users':('manage','پیشخوان مدیریت'),'user_new':('users','کاربران'),
+        'user_edit':('users','کاربران'),'settings':('manage','پیشخوان مدیریت'),
+        'fields_page':('domains_page','مدیریت حوزه‌ها'),
+        'activity_new':('activities','فعالیت‌ها'),
+        'profile':('dashboard','داشبورد'),
+        'import_result':('import_excel','ورود از Excel')} %}
+      {% set crumb = crumb_map.get(request.endpoint) %}
+      {% set back = back_map.get(request.endpoint) %}
+      {% if back or (crumb and crumb[1]) %}
+      <div class="pg-crumb pg-back">
+        {% if back %}<a class="btn ghost sm back-btn" href="{{ url_for(back[0]) }}"><svg class="ic i14"><use href="#i-back"/></svg> بازگشت به {{ back[1] }}</a>{% endif %}
+        {% if crumb and crumb[1] %}
+        <span class="crumb-txt"><a href="{{ url_for('dashboard') }}">{{ sys_name }}</a>
+          <svg class="ic crumb-sep"><use href="#i-back"/></svg><span>{{ crumb[0] }}</span>
+          <svg class="ic crumb-sep"><use href="#i-back"/></svg><b>{{ crumb[1] }}</b>
+        </span>
+        {% endif %}
+      </div>
+      {% endif %}
+      <div class="page-head">
+        <div class="ph-col">
+          <div class="ph-title">{% block page_title %}{% endblock %}</div>
+          <div class="ph-sub">{% block page_desc %}{% endblock %}</div>
+        </div>
+        <div class="ph-act">{% block page_actions %}{% endblock %}</div>
+      </div>
+      {% block content %}{% endblock %}
+    </div>
+  </div>
+</div>
+{# دادهٔ هدر برای اپ Vue (gnav) #}
+<script type="application/json" id="gnav-data">{{ {
+  'sys_name': sys_name, 'has_logo': has_logo, 'nav_tasks': nav_tasks, 'endpoint': request.endpoint,
+  'perm_import': perms.import, 'is_admin': g.user['role']=='admin', 'today_fa': today_fa_str,
+  'q': request.args.get('q','') if request.endpoint=='activities' else '',
+  'user': {'full_name': g.user['full_name'], 'role': g.user['role'], 'is_trainee': g.user['is_trainee']},
+  'urls': {'dashboard': url_for('dashboard'), 'activities': url_for('activities'),
+           'tasks': url_for('tasks_page'), 'reports': url_for('reports'),
+           'import': url_for('import_excel'), 'manage': url_for('manage'),
+           'users': url_for('users'), 'user_new': url_for('user_new'),
+           'settings': url_for('settings'), 'profile': url_for('profile'),
+           'logout': url_for('logout'), 'logo': url_for('logo')}
+}|tojson_script }}</script>
+{% with msgs = get_flashed_messages(with_categories=true) %}
+{% if msgs %}{% set _fl = namespace(items=[]) %}{% for c, m in msgs %}{% set _x = _fl.items.append({'cat': c, 'msg': m}) %}{% endfor %}<script type="application/json" id="flashes-data">{{ _fl.items|tojson_script }}</script>{% endif %}
+{% endwith %}
+<div id="chrome-app" v-cloak></div>
+{% endblock %}
+{# باندل‌های بیلدشدهٔ Vue (Vite → static/dist) — es-module; رویداد DOMContentLoaded لازم نیست #}
+<script type="module" src="{{ url_for('static', filename='dist/shell.js') }}?v={{ asset_v }}"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block page_title %}<svg class="ic pt-ic"><use href="#i-sliders"/></svg> تنظیمات سامانه{% endblock %}
+{% block page_desc %}نام سامانه، لوگو، سیاست پیوست‌ها و مدیریت حوزه‌ها{% endblock %}
+{% block content %}
+<div class="two-col">
+  <div class="card">
+    <h3><svg class="ic"><use href="#i-sliders"/></svg> تنظیمات عمومی</h3>
+    <form method="post" enctype="multipart/form-data" id="set-app">
+      <div class="mb-4">
+        <label class="req">نام سامانه</label>
+        <input type="text" name="system_name" value="{{ sys_name }}" required>
+      </div>
+      <div class="mb-4">
+        <label>لوگو (PNG/JPG)</label>
+        <input type="file" name="logo" id="logo-file" accept=".png,.jpg,.jpeg,.gif,.webp,.svg" class="hide">
+        <div class="fpick">
+          <button type="button" class="btn ghost sm" id="logo-btn" onclick="document.getElementById('logo-file').click()"><svg class="ic i14"><use href="#i-upload"/></svg> انتخاب فایل</button>
+          <span class="fpick-name mute" id="logo-name">فایلی انتخاب نشده</span>
+        </div>
+        {% if has_logo %}<div class="fl-sm mute mt-2">لوگوی فعلی: <img src="{{ url_for('logo') }}" class="logo-prev" alt="لوگوی فعلی"></div>{% endif %}
+      </div>
+      <div class="form-grid">
+        <div>
+          <label>حداکثر حجم هر فایل پیوست</label>
+          <div class="in-unit">
+            <input type="number" name="max_upload_mb" value="{{ max_mb }}" min="1" max="100" required>
+            <span class="unit">مگابایت</span>
+          </div>
+          <div class="mute mt-1 fs11">عددی بین ۱ تا ۱۰۰</div>
+        </div>
+        <div>
+          <label>فرمت‌های مجاز پیوست</label>
+          <input type="text" name="allowed_formats" dir="ltr" class="fmt-in" value="{{ formats }}" spellcheck="false">
+          <div class="fmt-chips" id="fmt-chips"></div>
+          <div class="mute mt-1 fs11">با کامای انگلیسی (,) جدا کنید — حروف کوچک، بدون نقطه</div>
+        </div>
+      </div>
+      <div class="btn-row mt-5">
+        <button class="btn pri" type="submit"><svg class="ic"><use href="#i-check"/></svg> ذخیره تنظیمات</button>
+      </div>
+    </form>
+<script type="application/json" id="set-data">{{ {
+  'sys_name': sys_name, 'max_mb': max_mb, 'formats': formats,
+  'has_logo': has_logo, 'logo_url': url_for('logo')
+}|tojson_script }}</script>
+  </div>
+
+  <div>
+    <div class="card">
+      <h3><svg class="ic"><use href="#i-layers"/></svg> مدیریت حوزه‌ها و فیلدها</h3>
+      <ul class="mini-list mb-4">
+        <li>افزودن، ویرایش و غیرفعال‌سازی حوزه‌ها</li>
+        <li>تعریف فیلدهای فرم هر حوزه (متن، تاریخ، لیست، عدد)</li>
+        <li>ترتیب‌دهی و الزامی‌کردن فیلدها — بدون تغییر کد</li>
+      </ul>
+      <a class="btn ghost" href="{{ url_for('domains_page') }}">مدیریت حوزه‌ها <svg class="ic i13 flip"><use href="#i-back"/></svg></a>
+    </div>
+    <div class="card">
+      <h3><svg class="ic"><use href="#i-shield"/></svg> نگهداری</h3>
+      <div class="note-c mbz"><svg class="ic"><use href="#i-checkc"/></svg><div>برای پشتیبان‌گیری، با تیم فنی هماهنگ کنید (نسخه‌برداری از فایل‌های سامانه در سرور انجام می‌شود).</div></div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script type="module" src="{{ url_for('static', filename='dist/settings.js') }}?v={{ asset_v }}"></script>
+{% endblock %}

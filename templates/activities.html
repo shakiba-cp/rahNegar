@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% from "macros.html" import date_trip, pager, dicon with context %}
+{% block page_title %}<svg class="ic pt-ic"><use href="#i-pencil"/></svg> فعالیت‌ها{% endblock %}
+{% block page_desc %}ثبت، جستجو، فیلتر، مرتب‌سازی و خروجی فعالیت‌ها{% endblock %}
+{% block page_actions %}
+{% if perms.add %}<a href="{{ url_for('activity_new') }}" class="btn pri"><svg class="ic"><use href="#i-plus"/></svg> ثبت فعالیت جدید</a>{% endif %}
+{% endblock %}
+{% block content %}
+<div class="card filters-card" id="flt-app" v-cloak>
+  <div class="flb mb-4">
+    <div class="btn-row no-print">
+      <a class="btn ghost" href="{{ url_for('activities', export='excel', **request.args) }}"><svg class="ic"><use href="#i-download"/></svg> خروجی Excel</a>
+      <a class="btn ghost" href="{{ url_for('activities', export='pdf', **request.args) }}"><svg class="ic"><use href="#i-printer"/></svg> خروجی PDF</a>
+    </div>
+    <button type="button" class="btn ghost sm flt-tgl" onclick="var c=this.closest('#flt-app');c.classList.toggle('collapsed')"><svg class="ic"><use href="#i-filter"/></svg><span>پنهان فیلترها</span></button>
+  </div>
+  <form class="filters" method="get">
+    <div class="f"><label>جستجو</label><div class="srch"><svg class="ic"><use href="#i-search"/></svg><input type="text" name="q" value="{{ request.args.get('q','') }}" placeholder="عنوان، تیکت، کارشناس..."></div></div>
+    <div class="f sm"><label>حوزه</label>
+      <select name="domain">
+        <option value="">همه</option>
+        {% for d in domains %}<option value="{{ d['id'] }}" {{ 'selected' if request.args.get('domain')|int == d['id'] }}>{{ d['name'] }}</option>{% endfor %}
+      </select></div>
+    <div class="f sm"><label>وضعیت</label>
+      <select name="status">
+        <option value="">همه</option>
+        {% for s in statuses %}<option value="{{ s }}" {{ 'selected' if request.args.get('status')==s }}>{{ s }}</option>{% endfor %}
+      </select></div>
+    {% if g.user['role']=='admin' %}
+    <div class="f sm"><label>کارشناس</label>
+      <select name="expert">
+        <option value="">همه</option>
+        {% for u in users %}<option value="{{ u['id'] }}" {{ 'selected' if request.args.get('expert')|int == u['id'] }}>{{ u['full_name'] }}</option>{% endfor %}
+      </select></div>
+    {% endif %}
+    <div class="f sm"><label>&nbsp;</label><button class="btn pri" type="submit"><svg class="ic"><use href="#i-check"/></svg> اعمال فیلتر</button></div>
+    <div class="f sm"><label>&nbsp;</label><a href="{{ url_for('activities') }}" class="btn ghost">پاک‌سازی</a></div>
+    <details class="adv full" {{ 'open' if request.args.get('ticket') or request.args.get('from__y') or request.args.get('to__y') }}>
+      <summary><svg class="ic"><use href="#i-sliders"/></svg> فیلترهای پیشرفته (تاریخ و تیکت)</summary>
+      <div class="adv-body">
+        <div class="f"><label>از تاریخ</label>{{ date_trip('from_', {'y': request.args.get('from__y',''), 'm': request.args.get('from__m',''), 'd': request.args.get('from__d','')}) }}</div>
+        <div class="f"><label>تا تاریخ</label>{{ date_trip('to_', {'y': request.args.get('to__y',''), 'm': request.args.get('to__m',''), 'd': request.args.get('to__d','')}) }}</div>
+        <div class="f sm"><label>شماره تیکت</label><input type="text" name="ticket" value="{{ request.args.get('ticket','') }}" placeholder="مثلاً 4321"></div>
+        <div class="f sm"><label>&nbsp;</label><button class="btn pri sm" type="submit"><svg class="ic"><use href="#i-check"/></svg> اعمال</button></div>
+      </div>
+    </details>
+  </form>
+</div>
+
+<script type="application/json" id="flt-data">{{ {
+  'admin': g.user['role']=='admin',
+  'domains': flt_domains,
+  'statuses': statuses,
+  'users': flt_users,
+  'args': request.args.to_dict(),
+  'urls': {'base': url_for('activities'), 'excel': url_for('activities', export='excel', **request.args),
+           'pdf': url_for('activities', export='pdf', **request.args), 'clear': url_for('activities')}
+}|tojson_script }}</script>
+
+<div class="card">
+  <div class="mute mb-3"><b class="ink1 onum">{{ total|fa }}</b> فعالیت یافت شد</div>
+  {% if acts %}
+  <div id="acts-app" v-cloak></div>
+  <script type="application/json" id="acts-data">{{ {'rows': acts_json, 'admin': g.user['role']=='admin'}|tojson_script }}</script>
+  {% else %}
+  <div class="empty"><div class="eic"><svg class="ic i88"><use href="#i-empty"/></svg></div>
+    <div class="fw7 ink2">فعالیتی یافت نشد.</div>
+    <div class="mute">فیلترها را تغییر دهید یا یک فعالیت جدید ثبت کنید.</div>
+    <a href="{{ url_for('activity_new') }}" class="btn pri mt-4"><svg class="ic"><use href="#i-plus"/></svg> اولین فعالیت را ثبت کنید</a></div>
+  {% endif %}
+</div>
+{% endblock %}
+{% block scripts %}
+<script type="module" src="{{ url_for('static', filename='dist/activities.js') }}?v={{ asset_v }}"></script>
+{% endblock %}

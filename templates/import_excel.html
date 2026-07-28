@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block page_title %}<svg class="ic pt-ic"><use href="#i-inbox"/></svg> ورود اطلاعات از Excel{% endblock %}
+{% block page_desc %}هر ردیف فایل = یک فعالیت جدید در حوزه انتخابی{% endblock %}
+{% block content %}
+<div class="two-col" id="imp-app">
+  <div class="card">
+    <h3><svg class="ic"><use href="#i-upload"/></svg> ۱) انتخاب حوزه و فایل</h3>
+    <form method="post" enctype="multipart/form-data">
+      <div class="mb-4">
+        <label for="dom">حوزه امنیتی</label>
+        <select name="domain_id" id="dom" required>
+          <option value="">— انتخاب کنید —</option>
+          {% for d in domains %}
+          <option value="{{ d['id'] }}">{{ d['name'] }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="mb-5">
+        <label>فایل Excel (xlsx)</label>
+        <div class="dz" onclick="document.getElementById('file').click()">
+          <input type="file" name="file" id="file" accept=".xlsx,.xlsm" required class="hide">
+          <div class="dz-ic"><svg class="ic i22"><use href="#i-upload"/></svg></div>
+          <div class="dz-t">فایل را اینجا رها کنید یا کلیک کنید</div>
+          <div class="dz-s">فقط xlsx / xlsm — سطر اول باید عنوان ستون‌ها باشد</div>
+          <div class="dz-name" style="display:none"></div>
+        </div>
+      </div>
+      <div class="up-prog" id="up-prog" style="display:none"><span></span></div>
+      <button class="btn pri" type="submit" id="imp-btn"> <svg class="ic"><use href="#i-inbox"/></svg> ثبت و پردازش فایل
+      </button>
+      <span class="mute fs11" id="imp-note">ابتدا حوزه و فایل را انتخاب کنید.</span>
+    </form>
+  </div>
+  <div class="card">
+    <h3><svg class="ic"><use href="#i-doc"/></svg> ۲) راهنما</h3>
+    <ul class="fs12 ink2" style="padding-right:18px;line-height:2.3">
+      <li>سطر اول فایل باید <b>عنوان ستون‌ها</b> (دقیقاً مطابق فیلدهای حوزه) باشد؛ هر ردیف بعدی = یک Activity.</li>
+      <li>تاریخ‌ها را <b>شمسی</b> بنویسید (مثل ۱۴۰۴/۰۴/۳۰).</li>
+      <li>پس از پردازش، نتیجه ثبت یا خطاهای هر ردیف نمایش داده می‌شود.</li>
+      <li>برای تطبیق دقیق ستون‌ها، <b>قالب نمونه</b> همان حوزه را دانلود کنید.</li>
+    </ul>
+    <a class="btn pri mt-3" id="tmpl-link" style="display:none" href="#"><svg class="ic"><use href="#i-download"/></svg> دانلود قالب نمونه حوزه</a>
+  </div>
+</div>
+
+<script type="application/json" id="imp-data">{{ {
+  'domains': imp_domains,
+  'dom': request.form.get('domain_id','')
+}|tojson_script }}</script>
+{% endblock %}
+{% block scripts %}
+<script type="module" src="{{ url_for('static', filename='dist/import.js') }}?v={{ asset_v }}"></script>
+{% endblock %}

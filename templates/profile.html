@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}پروفایل من | {{ sys_name }}{% endblock %}
+{% block page_title %}<svg class="ic pt-ic"><use href="#i-user"/></svg> پروفایل من{% endblock %}
+{% block page_desc %}مشخصات حساب، رمز عبور و دسترسی‌های شما{% endblock %}
+{% block content %}
+<div class="grid c2 prf">
+  <div class="card">
+    <h3><svg class="ic"><use href="#i-user"/></svg> مشخصات حساب</h3>
+    <form method="post">
+      <input type="hidden" name="action" value="info">
+      <div class="mb-3">
+        <label>نام کاربری</label>
+        <input type="text" dir="ltr" value="{{ g.user['username'] }}" readonly disabled>
+        <div class="mute mt-1">نام کاربری فقط توسط مدیر سامانه تعریف می‌شود.</div>
+      </div>
+      <div class="mb-3">
+        <label class="req">نام نمایشی</label>
+        <input type="text" name="full_name" value="{{ g.user['full_name'] }}" required>
+        <div class="mute mt-1">این نام در نوار بالا و کنار فعالیت‌های شما نمایش داده می‌شود.</div>
+      </div>
+      <div class="mb-3 prf-meta">
+        <span class="role-chip {{ 'expert' if g.user['role']!='admin' }}">{{ 'مدیر سامانه' if g.user['role']=='admin' else ('کارآموز' if g.user['is_trainee'] else 'کارشناس') }}</span>
+        {% if g.user['is_trainee'] %}
+        <span class="mute fs12">سرپرست: <b class="ink1">{{ sup['full_name'] if sup else '— (تعیین نشده)' }}</b></span>
+        {% endif %}
+      </div>
+      <div class="btn-row">
+        <button class="btn pri" type="submit"><svg class="ic"><use href="#i-check"/></svg> ذخیره مشخصات</button>
+      </div>
+    </form>
+    <div class="perm-box">
+      <div class="fl-sm mute mb-2"><b class="ink1">دسترسی‌های شما</b> — تعیین‌کننده: مدیر سامانه</div>
+      <div class="pcl">
+        {% if g.user['role']=='admin' %}
+        <span class="pc on"><svg class="ic"><use href="#i-check"/></svg> دسترسی کامل (مدیر)</span>
+        {% else %}
+        <span class="pc {{ 'on' if perms.add else 'off' }}">{{ '✓' if perms.add else '✕' }} ثبت فعالیت</span>
+        <span class="pc {{ 'on' if perms.edit else 'off' }}">{{ '✓' if perms.edit else '✕' }} ویرایش فعالیت</span>
+        <span class="pc {{ 'on' if perms.delete else 'off' }}">{{ '✓' if perms.delete else '✕' }} حذف فعالیت</span>
+        <span class="pc {{ 'on' if perms.import else 'off' }}">{{ '✓' if perms.import else '✕' }} ورود از Excel</span>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  <div class="card">
+    <h3><svg class="ic"><use href="#i-lock"/></svg> تغییر رمز عبور</h3>
+    <form method="post">
+      <input type="hidden" name="action" value="password">
+      <div class="mb-3">
+        <label class="req">رمز عبور فعلی</label>
+        <input type="password" name="current_password" dir="ltr" required autocomplete="current-password">
+      </div>
+      <div class="mb-3">
+        <label class="req">رمز عبور جدید</label>
+        <input type="password" name="new_password" dir="ltr" required minlength="4" autocomplete="new-password">
+      </div>
+      <div class="mb-5">
+        <label class="req">تکرار رمز عبور جدید</label>
+        <input type="password" name="repeat_password" dir="ltr" required minlength="4" autocomplete="new-password">
+      </div>
+      <div class="btn-row">
+        <button class="btn pri" type="submit"><svg class="ic"><use href="#i-check"/></svg> ذخیره رمز جدید</button>
+      </div>
+    </form>
+    <div class="mute fs12 mt-4">پس از تغییر رمز، در ورود بعدی از رمز جدید استفاده کنید. در صورت فراموشی رمز، فقط مدیر سامانه می‌تواند آن را بازنشانی کند.</div>
+  </div>
+</div>
+{% endblock %}

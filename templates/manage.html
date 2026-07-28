@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}مدیریت سامانه | {{ sys_name }}{% endblock %}
+{% block page_title %}مدیریت سامانه{% endblock %}
+{% block page_desc %}دسترسی سریع به بخش‌های مدیریتی{% endblock %}
+{% block content %}
+<div class="mhub">
+  <div class="mh">
+    <div class="mh-head"><span class="qic tile t5"><svg class="ic"><use href="#i-users"/></svg></span>
+      <div><b>کاربران</b><span class="mute">{{ stats.users|fa }} کاربر فعال</span></div></div>
+    <p>تعریف کاربر جدید، ویرایش نام و رمز، تعیین نقش (مدیر/کارشناس) و فعال یا غیرفعال‌کردن دسترسی.</p>
+    <div class="btn-row">
+      <a class="btn pri sm" href="{{ url_for('user_new') }}"><svg class="ic"><use href="#i-plus"/></svg> کاربر جدید</a>
+      <a class="btn ghost sm" href="{{ url_for('users') }}">مدیریت کاربران</a>
+    </div>
+  </div>
+  <div class="mh">
+    <div class="mh-head"><span class="qic tile t3"><svg class="ic"><use href="#i-layers"/></svg></span>
+      <div><b>حوزه‌های امنیتی</b><span class="mute">{{ stats.domains|fa }} حوزه فعال · {{ stats.fields|fa }} فیلد فرم</span></div></div>
+    <p>تعریف حوزه‌های فعالیت، آیکون هر حوزه و مدیریت فیلدهای فرم ثبت فعالیت در هر حوزه.</p>
+    <div class="btn-row">
+      <a class="btn ghost sm" href="{{ url_for('domains_page') }}">مدیریت حوزه‌ها و فیلدها</a>
+    </div>
+  </div>
+  <div class="mh">
+    <div class="mh-head"><span class="qic tile t7"><svg class="ic"><use href="#i-wrench"/></svg></span>
+      <div><b>تنظیمات سامانه</b><span class="mute">هویت و رفتار سامانه</span></div></div>
+    <p>نام سامانه، آپلود لوگوی سازمانی، فرمت پیش‌فرض خروجی و محدودیت حجم فایل.</p>
+    <div class="btn-row">
+      <a class="btn ghost sm" href="{{ url_for('settings') }}">تنظیمات</a>
+    </div>
+  </div>
+  <div class="mh">
+    <div class="mh-head"><span class="qic tile t2"><svg class="ic"><use href="#i-user"/></svg></span>
+      <div><b>پروفایل من</b><span class="mute">حساب خود شما</span></div></div>
+    <p>تغییر نام نمایشی و رمز عبور خودتان و مشاهده‌ی سطح دسترسی حساب‌تان. این بخش برای همه‌ی کاربران از طریق کلیک روی نامشان در نوار بالا در دسترس است.</p>
+    <div class="btn-row">
+      <a class="btn ghost sm" href="{{ url_for('profile') }}">پروفایل و رمز عبور</a>
+    </div>
+  </div>
+  <div class="mh">
+    <div class="mh-head"><span class="qic tile t6"><svg class="ic"><use href="#i-inbox"/></svg></span>
+      <div><b>ورود گروهی از Excel</b><span class="mute">{{ stats.imports|fa }} فایل واردشده</span></div></div>
+    <p>ثبت دسته‌ای فعالیت‌ها از فایل اکسل با قالب هر حوزه و مشاهده نتیجه‌ی ورود.</p>
+    <div class="btn-row">
+      <a class="btn ghost sm" href="{{ url_for('import_excel') }}">ورود از Excel</a>
+    </div>
+  </div>
+  <div class="mh">
+    <div class="mh-head"><span class="qic tile t1"><svg class="ic"><use href="#i-chart"/></svg></span>
+      <div><b>گزارش‌های مدیریتی</b><span class="mute">Excel / PDF / CSV</span></div></div>
+    <p>تهیه‌ی گزارش دوره‌ای با فیلتر بازه، حوزه و وضعیت و انتخاب ستون‌های خروجی.</p>
+    <div class="btn-row">
+      <a class="btn ghost sm" href="{{ url_for('reports') }}">گزارش‌ها</a>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <h3><svg class="ic"><use href="#i-cap"/></svg> نیروها و کارآموزان
+    <span class="h3-sub">{{ stats.trainees|fa }} کارآموز فعال — تخصیص کارآموز به نیرو از مسیر «ویرایش کاربر» انجام می‌شود</span></h3>
+  <div class="tbl-wrap"><table class="team-tbl">
+    <thead><tr><th>نیرو</th><th>نقش</th><th class="tac">تعداد کارآموز</th><th>نام کارآموزان</th><th></th></tr></thead>
+    <tbody>
+      {% for t in teams %}
+      <tr>
+        <td><b class="ink1">{{ t.full_name }}</b> <span class="mute fs11" dir="ltr">{{ t.username }}</span></td>
+        <td><span class="role-chip {{ 'expert' if t.role=='expert' }}">{{ 'مدیر' if t.role=='admin' else 'کارشناس' }}</span></td>
+        <td class="tac"><span class="badge {{ 'st-done' if t.tc else 'st-off' }}">{{ t.tc|fa }}</span></td>
+        <td>{% for n in t.names %}<span class="chip chip-tr sm"><svg class="ic"><use href="#i-cap"/></svg> {{ n }}</span>{% else %}<span class="mute">—</span>{% endfor %}</td>
+        <td class="tal"><a class="btn ghost icon" href="{{ t.edit }}" title="ویرایش کاربر"><svg class="ic"><use href="#i-pencil"/></svg></a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table></div>
+  {% if not stats.trainees %}<div class="mute fs12 mt-3">هنوز هیچ حسابی به‌عنوان «کارآموز» تعریف نشده است. در فرم کاربر جدید یا ویرایش کاربر، گزینه‌ی «این حساب کارآموز است» را فعال و سرپرست را انتخاب کنید.</div>{% endif %}
+</div>
+{% endblock %}

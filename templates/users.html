@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block page_title %}<svg class="ic pt-ic"><use href="#i-users"/></svg> کاربران{% endblock %}
+{% block page_desc %}مدیریت حساب‌ها، نقش‌ها، دسترسی‌ها و کارآموزان هر نیرو — برای تغییر دسترسی یا تعیین «کارآموز/سرپرست» روی ویرایش کلیک کنید{% endblock %}
+{% block page_actions %}
+<a class="btn pri" href="{{ url_for('user_new') }}"><svg class="ic"><use href="#i-plus"/></svg> کاربر جدید</a>
+{% endblock %}
+{% block content %}
+<div class="card">
+  <div class="mute mb-4"><b class="ink1 onum">{{ users|length|fa }}</b> کاربر ثبت شده است — <span class="fs11">جدول تعاملی Vue؛ برای مرتب‌سازی روی عنوان ستون‌ها کلیک کنید.</span></div>
+  <div id="users-app" v-cloak></div>
+  <script type="application/json" id="users-data">{{ {'rows': users_json}|tojson_script }}</script>
+</div>
+{% endblock %}
+{% block scripts %}
+<script type="module" src="{{ url_for('static', filename='dist/users.js') }}?v={{ asset_v }}"></script>
+{% endblock %}

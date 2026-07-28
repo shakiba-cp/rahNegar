@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% from "macros.html" import dicon with context %}
+{% block page_title %}<svg class="ic pt-ic"><use href="#i-ticket"/></svg> {{ 'تخصیص تسک به کارشناسان' if g.user['role']=='admin' else 'تسک‌های من' }}{% endblock %}
+{% block page_desc %}{% if g.user['role']=='admin' %}ایجاد تسک برای کارشناسان با توضیحات و مستندات — و پیگیری وضعیت انجام{% else %}تسک‌هایی که مدیر برای شما ثبت کرده است — پس از اتمام، در صفحه فعالیت «انجام شد» را بزنید یا پاسخ بنویسید{% endif %}{% endblock %}
+{% block page_actions %}
+{% if g.user['role']=='admin' %}
+<a class="btn ghost sm" href="{{ url_for('activity_new') }}"><svg class="ic"><use href="#i-pencil"/></svg> ثبت فعالیت با فرم کامل حوزه</a>
+{% endif %}
+{% endblock %}
+{% block content %}
+{% if g.user['role']=='admin' %}
+<div class="acard">
+  <div class="acard-h">
+    <span class="acard-ic"><svg class="ic"><use href="#i-ticket"/></svg></span>
+    <div class="acard-t">
+      <b>تخصیص تسک جدید</b>
+      <span>کارشناس مسئول، حوزه مرتبط و عنوان تسک را مشخص کنید؛ توضیحات و مستندات بلافاصله در صفحه تسک برای کارشناس نمایش داده می‌شود.</span>
+    </div>
+  </div>
+  <div class="acard-b">
+    <form method="post" enctype="multipart/form-data">
+      <div class="form-grid">
+        <div>
+          <label class="req">کارشناس مسئول</label>
+          <select name="expert_id" required autofocus>
+            <option value="">— انتخاب کارشناس —</option>
+            {% for u in users %}<option value="{{ u['id'] }}" {{ 'selected' if request.form.get('expert_id','') == u['id']|string }}>{{ u['full_name'] }}</option>{% endfor %}
+          </select>
+        </div>
+        <div>
+          <label class="req">حوزه مرتبط</label>
+          <select name="domain_id" required>
+            <option value="">— انتخاب حوزه —</option>
+            {% for d in domains %}<option value="{{ d['id'] }}" {{ 'selected' if request.form.get('domain_id','') == d['id']|string }}>{{ d['name'] }}</option>{% endfor %}
+          </select>
+        </div>
+        <div>
+          <label>شماره تیکت (اختیاری)</label>
+          <input type="text" name="ticket" placeholder="مثلاً 4024" value="{{ request.form.get('ticket','') }}">
+        </div>
+        <div class="full">
+          <label class="req">عنوان تسک</label>
+          <input type="text" name="title" required placeholder="مثلاً: بررسی و رفع آسیب‌پذیری CVE-2026-1234 روی سامانه حاکمیتی" value="{{ request.form.get('title','') }}">
+        </div>
+        <div class="full">
+          <label>توضیحات تسک (اختیاری)</label>
+          <textarea name="note" rows="3" placeholder="شرح کاری که باید انجام شود، راهنما، لینک منابع، موارد قابل توجه...">{{ request.form.get('note','') }}</textarea>
+        </div>
+        <div class="full">
+          <label>مستندات تسک (اختیاری)</label>
+          <div class="dz">
+            <input type="file" name="files" multiple class="hide">
+            <div class="dz-ic"><svg class="ic i22"><use href="#i-upload"/></svg></div>
+            <div class="dz-t">فایل‌های مستندات را اینجا رها کنید یا کلیک کنید</div>
+            <div class="dz-s">PDF / Word / Excel / تصویر / ZIP — حداکثر حجم طبق تنظیمات سامانه</div>
+            <div class="dz-name"></div>
+          </div>
+        </div>
+      </div>
+      <div class="btn-row mt-4">
+        <button class="btn pri" type="submit"><svg class="ic"><use href="#i-checkc"/></svg> ثبت و تخصیص تسک</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+<div class="card">
+  <h3><svg class="ic"><use href="#i-ticket"/></svg> {{ 'تسک‌های تخصیص‌یافته' if g.user['role']=='admin' else 'تسک‌های من' }} <span class="mute onum">({{ rows|length|fa }})</span></h3>
+  <div id="tasks-app" v-cloak></div>
+  <script type="application/json" id="tasks-data">{{ {'rows': rows_json, 'admin': g.user['role']=='admin'}|tojson_script }}</script>
+</div>
+{% endblock %}
+{% block scripts %}
+<script type="module" src="{{ url_for('static', filename='dist/tasks.js') }}?v={{ asset_v }}"></script>
+{% endblock %}

@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% macro ck(name) %}{% if request.method == 'POST' %}{{ 1 if request.form.get(name) else 0 }}{% elif u %}{{ u[name] }}{% else %}{{ 0 if name == 'can_delete' else 1 }}{% endif %}{% endmacro %}
+{% block page_title %}{% if u %}<svg class="ic pt-ic"><use href="#i-pencil"/></svg> ویرایش کاربر{% else %}<svg class="ic pt-ic"><use href="#i-plus"/></svg> کاربر جدید{% endif %}{% endblock %}
+{% block page_desc %}{% if u %}ویرایش حساب «{{ u['username'] }}»{% else %}تعریف حساب کاربری جدید{% endif %}{% endblock %}
+{% block content %}
+{% set self_edit = u and u['id']==g.user['id'] %}
+<div class="card" style="max-width:560px">
+  <form method="post" id="uform-app">
+    <div class="mb-3">
+      <label class="req">نام کاربری</label>
+      <input type="text" name="username" dir="ltr" value="{{ u['username'] if u else request.form.get('username','') }}" {{ 'readonly' if u }} required>
+      {% if u %}<div class="mute mt-1">نام کاربری قابل تغییر نیست.</div>{% endif %}
+    </div>
+    <div class="mb-3">
+      <label class="req">نام کامل</label>
+      <input type="text" name="full_name" value="{{ u['full_name'] if u else request.form.get('full_name','') }}" required>
+    </div>
+    <div class="mb-3">
+      <label>نقش</label>
+      <select name="role">
+        {% set r = (request.form.get('role') if request.method == 'POST' else (u['role'] if u else 'expert')) %}
+        <option value="expert" {{ 'selected' if r=='expert' }}>کارشناس — فقط فعالیت‌های خودش</option>
+        <option value="admin" {{ 'selected' if r=='admin' }}>مدیر — دسترسی کامل</option>
+      </select>
+      {% if self_edit %}<div class="mute mt-1">کاربر مدیر فعلی نمی‌تواند نقش خود را کاهش دهد.</div>{% endif %}
+    </div>
+    <input type="hidden" name="perm_form" value="1">
+    <div class="mb-3">
+      <label>دسترسی‌ها <span class="mute fs11">(فقط برای نقش کارشناس اعمال می‌شود؛ مدیر همیشه دسترسی کامل دارد)</span></label>
+      <div class="perm-grid">
+        <label class="ck"><input type="checkbox" name="can_add" {{ 'checked' if ck('can_add')|int }} {{ 'disabled' if self_edit }}> ثبت فعالیت جدید</label>
+        <label class="ck"><input type="checkbox" name="can_edit" {{ 'checked' if ck('can_edit')|int }} {{ 'disabled' if self_edit }}> ویرایش فعالیت‌ها</label>
+        <label class="ck"><input type="checkbox" name="can_delete" {{ 'checked' if ck('can_delete')|int }} {{ 'disabled' if self_edit }}> حذف فعالیت‌ها</label>
+        <label class="ck"><input type="checkbox" name="can_import" {{ 'checked' if ck('can_import')|int }} {{ 'disabled' if self_edit }}> ورود از Excel</label>
+      </div>
+      {% if self_edit %}<div class="mute mt-1">دسترسی‌های حساب خودتان قابل تغییر نیست.</div>{% endif %}
+    </div>
+    <div class="mb-3 trn-box">
+      <label>نوع حساب</label>
+      {% set is_tr = request.form.get('is_trainee') if request.method == 'POST' else (u['is_trainee'] if u else 0) %}
+      <label class="ck"><input type="checkbox" name="is_trainee" id="tr-cb" {{ 'checked' if is_tr }} {{ 'disabled' if self_edit }}> این حساب «کارآموز» است</label>
+      <div class="sup-row{{ ' dim' if not is_tr }}" id="sup-row">
+        <label class="fs12 mute">سرپرست کارآموز (کدام نیرو مسئول این کارآموز است؟)</label>
+        {% set cur_sup = request.form.get('supervisor_id','') if request.method == 'POST' else (u['supervisor_id'] or '' if u else '') %}
+        <select name="supervisor_id" id="sup-sel" {{ 'disabled' if self_edit }}>
+          <option value="">— بدون سرپرست —</option>
+          {% for s in sups %}
+          <option value="{{ s['id'] }}" {{ 'selected' if cur_sup|string == s['id']|string }}>{{ s['full_name'] }} ({{ s['username'] }})</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="mute mt-1">تعداد کارآموزان هر نیرو در صفحه «کاربران» و «پیشخوان مدیریت» نمایش داده می‌شود.</div>
+    </div>
+    <div class="mb-5">
+      <label class="{{ 'req' if not u }}">رمز عبور {{ '(برای تغییر وارد کنید)' if u }}</label>
+      <input type="password" name="password" dir="ltr" {{ 'required' if not u }} autocomplete="new-password">
+    </div>
+    <div class="btn-row">
+      <button class="btn pri" type="submit"><svg class="ic"><use href="#i-check"/></svg> ذخیره</button>
+      <a class="btn ghost" href="{{ url_for('users') }}">انصراف</a>
+    </div>
+  </form>
+
+<script type="application/json" id="uform-data">{{ {
+  'is_edit': u is not none,
+  'self_edit': self_edit,
+  'username': u['username'] if u else request.form.get('username',''),
+  'full_name': u['full_name'] if u else request.form.get('full_name',''),
+  'role': request.form.get('role') if request.method == 'POST' else (u['role'] if u else 'expert'),
+  'perms': {'can_add': ck('can_add')|int, 'can_edit': ck('can_edit')|int,
+            'can_delete': ck('can_delete')|int, 'can_import': ck('can_import')|int},
+  'is_trainee': (1 if (request.form.get('is_trainee') if request.method == 'POST' else (u['is_trainee'] if u else 0)) else 0),
+  'supervisor_id': (request.form.get('supervisor_id','') if request.method == 'POST' else ((u['supervisor_id'] or '') if u else ''))|string,
+  'sups': sups_json,
+  'back_url': url_for('users')
+}|tojson_script }}</script>
+{% endblock %}
+</div>
+{% block scripts %}
+<script type="module" src="{{ url_for('static', filename='dist/user-form.js') }}?v={{ asset_v }}"></script>
+{% endblock %}
