@@ -1422,7 +1422,17 @@ def import_excel():
 
 
 def _norm_header(s):
-    return re.sub(r"\s+", " ", str(s or "").strip()).replace("ي", "ی").replace("ك", "ک")
+    return re.sub(r"\s+", " ", str(s or "").strip())
+
+
+def _norm_person(s):
+    """نرمال‌سازی نام شخص برای تطبیق کارشناس Excel با کاربران سامانه —
+    تفاوت فاصله/نیم‌فاصله/حروف عربی (ي ك ة...) و بزرگی‌حروف را نادیده می‌گیرد."""
+    s = str(s or "").strip().lower()
+    for a, b in (("ي", "ی"), ("ك", "ک"), ("أ", "ا"), ("إ", "ا"), ("آ", "ا"),
+                 ("ة", "ه"), ("ؤ", "و"), ("ئ", "ی"), ("۰", "0")):
+        s = s.replace(a, b)
+    return re.sub(r"[\s‌​‎‏\-_ـ]+", "", s).replace("ي", "ی").replace("ك", "ک")
 
 
 def _cell_text(raw):
@@ -1544,8 +1554,10 @@ def _process_excel(domain, data, filename, dup_mode="ask"):
     parsed, dups = [], []
     # فیلد «کارشناس» (در صورت وجود در این حوزه) و نگاشت نام → کاربر سامانه
     expert_fid = next((f["id"] for f in fields if (f["field_key"] or "") == "expert"), None)
-    users_by_name = {r["full_name"].strip(): r["id"] for r in
-                     db.execute("SELECT id, full_name FROM users WHERE is_active=1")}
+    users_by_name = {}
+    for r in db.execute("SELECT id, username, full_name FROM users WHERE is_active=1"):
+        users_by_name[_norm_person(r["full_name"])] = r["id"]
+        users_by_name.setdefault(_norm_person(r["username"]), r["id"])
     for idx, r in enumerate(rows[1:], start=2):
         if all(c is None or str(c).strip() == "" for c in r):
             total -= 1
@@ -1594,7 +1606,7 @@ def _process_excel(domain, data, filename, dup_mode="ask"):
         if expert_fid is not None:
             ev = str(record.get(expert_fid) or "").strip()
             if ev:
-                mu = users_by_name.get(ev)
+                mu = users_by_name.get(_norm_person(ev))
                 if mu is not None:
                     owner_id = mu
                 else:
@@ -1629,8 +1641,11 @@ def _process_excel(domain, data, filename, dup_mode="ask"):
         flash(f"{jalali.fa(len(dups))} ردیف تکراری (همهٔ ستون‌هایشان مشابه یک فعالیت "
               f"موجود بود) نادیده گرفته شد.", "warning")
     if warns:
+        valid_names = "، ".join(sorted({r["full_name"] for r in db.execute(
+            "SELECT full_name FROM users WHERE is_active=1")}))
         flash(f"{jalali.fa(len(warns))} ردیف کارشناس ناشناخته داشتند و به نام شما ثبت شدند "
-              f"(جزئیات در صفحهٔ نتیجه).", "warning")
+              f"(جزئیات در صفحهٔ نتیجه). نام کارشناس در فایل باید یکی از این‌ها باشد: "
+              f"{valid_names}", "warning")
     return log_id
 
 

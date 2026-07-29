@@ -65,7 +65,7 @@ function applyAll(p) {
   if (p.charts) {
     mountChart('hbar', 'ch-acts', p.charts.domains);
     if ((p.charts.experts || []).length) {
-      mountChart('hbar', 'ch-exp', p.charts.experts.map((x, i) => ({
+      mountChart('donut', 'ch-exp', p.charts.experts.map((x, i) => ({
         ...x, color: ['#0d9488', '#0891b2', '#d97706', '#0284c7', '#059669', '#7c3aed',
                       '#dc2626', '#f59e0b', '#14b8a6', '#64748b', '#0f766e', '#eab308'][i % 12]
       })));
