@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block page_title %}<svg class="ic pt-ic"><use href="#i-alert-tri"/></svg> ردیف تکراری پیدا شد{% endblock %}
+{% block page_desc %}فایل «{{ p['filename'] }}» — حوزه {{ p['domain_name'] }} — پیش از ثبت، تصمیم بگیرید{% endblock %}
+{% block content %}
+<div class="card" style="max-width:780px;margin:0 auto">
+  <h3><svg class="ic"><use href="#i-alert"/></svg> ردیف تکراری شناسایی شد — چه می‌خواهید؟</h3>
+  <div class="note-c mb-4"><svg class="ic"><use href="#i-alert-tri"/></svg>
+    <div>در این فایل <b class="ink1">{{ p['dups']|length|fa }}</b> ردیف <b>تکراری</b> وجود دارد: همهٔ ستون‌هایشان دقیقاً مشابه یک فعالیتِ موجود در همین حوزه است (یا داخل خود فایل تکرار شده‌اند). تا اینجا <b>هیچ ردیفی ثبت نشده است</b> — انتخاب با شماست.</div>
+  </div>
+  <div class="grid c4 mb-4">
+    <div class="kpi"><div class="kic g6"><svg class="ic i22"><use href="#i-doc"/></svg></div><div><div class="num">{{ p['total']|fa }}</div><div class="lbl">کل ردیف‌ها</div></div></div>
+    <div class="kpi"><div class="kic g2"><svg class="ic i22"><use href="#i-checkc"/></svg></div><div><div class="num">{{ p['new_n']|fa }}</div><div class="lbl">ردیف جدید</div></div></div>
+    <div class="kpi"><div class="kic" style="background:linear-gradient(135deg,#f59e0b,#d97706)"><svg class="ic i22"><use href="#i-alert-tri"/></svg></div><div><div class="num">{{ p['dups']|length|fa }}</div><div class="lbl">ردیف تکراری</div></div></div>
+    <div class="kpi"><div class="kic" style="background:linear-gradient(135deg,#f43f5e,#be123c)"><svg class="ic i22"><use href="#i-alert"/></svg></div><div><div class="num">{{ p['errors_n']|fa }}</div><div class="lbl">ردیف خطادار</div></div></div>
+  </div>
+  <div class="mute mb-5 fs12">
+    ردیف‌های تکراری (شمارهٔ ردیف در فایل):
+    <b class="onum ink2">{% for n in p['dups'][:50] %}{{ n|fa }}{{ '، ' if not loop.last }}{% endfor %}</b>
+    {% if p['dups']|length > 50 %}و {{ (p['dups']|length - 50)|fa }} مورد دیگر{% endif %}
+  </div>
+  <form method="post" action="{{ url_for('import_confirm') }}" class="btn-row">
+    <button class="btn pri" type="submit" name="choice" value="skip"><svg class="ic"><use href="#i-check"/></svg> فقط ردیف‌های جدید ثبت شود ({{ p['new_n']|fa }})</button>
+    <button class="btn ghost" type="submit" name="choice" value="force"><svg class="ic"><use href="#i-inbox"/></svg> همه ثبت شود، حتی تکراری‌ها</button>
+    <button class="btn danger ghost" type="submit" name="choice" value="cancel"><svg class="ic"><use href="#i-x"/></svg> لغو ورود فایل</button>
+  </form>
+  <div class="mute mt-4 fs11">اگر فایل را اشتباه انتخاب کرده‌اید، «لغو» بزنید؛ هیچ داده‌ای تغییر نمی‌کند.</div>
+</div>
+{% endblock %}

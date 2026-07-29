@@ -144,6 +144,91 @@ check("لاگ import: ۲ موفق ۱ خطا", imp["success_rows"] == 2 and imp["
 r = c.get(f"/import/{imp['id']}")
 check("صفحه نتیجه import", "تعداد کل ردیف‌ها".encode() in r.data)
 
+# ---------- تشخیص ردیف تکراری در ورود Excel: پرسش قبل از ثبت + skip/force ----------
+with A.app.app_context():
+    _n0 = A.get_db().execute("SELECT COUNT(*) AS c FROM activities").fetchone()["c"]
+bio2 = io.BytesIO(); wb.save(bio2); bio2.seek(0)
+r = c.post("/import", data={"domain_id": str(dom["id"]),
+                            "file": (bio2, "فعالیت‌ها.xlsx")},
+           content_type="multipart/form-data")
+check("ورود مجدد: صفحهٔ پرسش دربارهٔ ردیف تکراری", "ردیف تکراری".encode() in r.data)
+with A.app.app_context():
+    _n1 = A.get_db().execute("SELECT COUNT(*) AS c FROM activities").fetchone()["c"]
+check("ورود مجدد: پیش از تأیید هیچ ردیفی ثبت نشد", _n1 == _n0, (_n1, _n0))
+r = c.post("/import/confirm", data={"choice": "skip"}, follow_redirects=True)
+check("تأیید skip: پیام «نادیده گرفته شد»", "نادیده گرفته شد".encode() in r.data)
+with A.app.app_context():
+    _d = A.get_db()
+    _imp2 = _d.execute("SELECT * FROM excel_imports ORDER BY id DESC").fetchone()
+    _n2 = _d.execute("SELECT COUNT(*) AS c FROM activities").fetchone()["c"]
+check("تأیید skip: هر دو ردیف تکراری رد شدند و چیز جدیدی ثبت نشد",
+      _n2 == _n0 and _imp2["dup_rows"] == 2 and _imp2["success_rows"] == 0,
+      (_imp2["dup_rows"], _imp2["success_rows"]))
+wb3 = Workbook(); ws3 = wb3.active
+ws3.append(hdr + ["وضعیت"])
+ws3.append(_row(**{"تاریخ": "۱۴۰۵/۰۴/۱۰", "کارشناس": "رضا کریمی", "کارفرما": "شرکت ج",
+                   "آسیب پذیری": "XSS", "شدت": "کم", "آدرس": "https://b.ir",
+                   "شماره تیکت": "T-100", "زمان درخواست": "۱۴۰۵/۰۴/۱۰", "وضعیت_سیستم": "انجام شده"}))
+ws3.append(_row(**{"تاریخ": "1405/04/11", "کارشناس": "سارا احمدی", "کارفرما": "سازمان د",
+                   "آسیب پذیری": "IDOR", "شدت": "بحرانی", "آدرس": "https://c.ir",
+                   "شماره تیکت": "T-101", "وضعیت_سیستم": "در حال انجام"}))
+ws3.append(_row(**{"تاریخ": "1405/04/12", "کارشناس": "رضا کریمی", "کارفرما": "سازمان ه",
+                   "آسیب پذیری": "SSRF", "شدت": "متوسط", "آدرس": "https://d.ir",
+                   "شماره تیکت": "T-200", "زمان درخواست": "1405/04/12", "وضعیت_سیستم": "در حال انجام"}))
+bio3 = io.BytesIO(); wb3.save(bio3); bio3.seek(0)
+r = c.post("/import", data={"domain_id": str(dom["id"]),
+                            "file": (bio3, "فعالیت‌ها۳.xlsx")},
+           content_type="multipart/form-data")
+check("فایل مختلط: صفحهٔ پرسش ردیف تکراری", "ردیف تکراری".encode() in r.data)
+r = c.post("/import/confirm", data={"choice": "force"}, follow_redirects=True)
+with A.app.app_context():
+    _d = A.get_db()
+    _imp3 = _d.execute("SELECT * FROM excel_imports ORDER BY id DESC").fetchone()
+    _n3 = _d.execute("SELECT COUNT(*) AS c FROM activities").fetchone()["c"]
+    _t200 = _d.execute("SELECT 1 FROM activities WHERE ticket='T-200'").fetchone()
+check("تأیید force: هر سه ردیف ثبت شدند (حتی تکراری‌ها)",
+      _imp3["success_rows"] == 3 and _imp3["dup_rows"] == 0 and _t200 is not None,
+      (_imp3["success_rows"],))
+check("تأیید force: تعداد فعالیت‌ها +۳ شد", _n3 == _n0 + 3, (_n3, _n0))
+
+# ---------- ورود تلرانت: زیرمجموعهٔ ستون‌ها + نگاشت کارشناس به کاربر سامانه ----------
+wb4 = Workbook(); ws4 = wb4.active
+ws4.append(["کارشناس", "شماره تیکت", "شدت"])   # فقط زیرمجموعه — «تاریخ» (الزامی) ستون ندارد
+ws4.append(["رضا کریمی", "T-300", "کم"])
+bio4 = io.BytesIO(); wb4.save(bio4); bio4.seek(0)
+r = c.post("/import", data={"domain_id": str(dom["id"]),
+                            "file": (bio4, "زیرمجموعه.xlsx")},
+           content_type="multipart/form-data", follow_redirects=True)
+with A.app.app_context():
+    _d = A.get_db()
+    _imp4 = _d.execute("SELECT * FROM excel_imports ORDER BY id DESC").fetchone()
+    _t300 = _d.execute("SELECT * FROM activities WHERE ticket='T-300'").fetchone()
+check("ورود تلرانت: فیلد الزامیِ غایب از فایل خطا نیست", _imp4["success_rows"] == 1 and _imp4["error_rows"] == 0,
+      (_imp4["success_rows"], _imp4["error_rows"]))
+check("کارشناس ناشناخته: آپلودکننده + هشدار", _t300 is not None and _t300["user_id"] == 1
+      and "رضا کریمی" in (_imp4["warns"] or ""), (_imp4["warns"] or "")[:120])
+
+# کاربر جدید → نام در اکسل → مالکیت همان کاربر می‌شود
+r = c.post("/users/new", data={"username": "negar", "full_name": "نگار نمونه",
+                               "role": "expert", "password": "123456"}, follow_redirects=True)
+check("ایجاد کاربر نگار برای تست نگاشت", "کاربر ایجاد شد".encode() in r.data)
+with A.app.app_context():
+    _negar = A.get_db().execute("SELECT id FROM users WHERE username='negar'").fetchone()["id"]
+wb5 = Workbook(); ws5 = wb5.active
+ws5.append(["کارشناس", "شماره تیکت", "شدت"])
+ws5.append(["نگار نمونه", "T-400", "متوسط"])
+bio5 = io.BytesIO(); wb5.save(bio5); bio5.seek(0)
+r = c.post("/import", data={"domain_id": str(dom["id"]),
+                            "file": (bio5, "نگاشت.xlsx")},
+           content_type="multipart/form-data", follow_redirects=True)
+with A.app.app_context():
+    _d = A.get_db()
+    _imp5 = _d.execute("SELECT * FROM excel_imports ORDER BY id DESC").fetchone()
+    _t400 = _d.execute("SELECT * FROM activities WHERE ticket='T-400'").fetchone()
+check("نگاشت کارشناس: فعالیت به نام کاربرِ اکسل ثبت شد",
+      _t400 is not None and _t400["user_id"] == _negar and (_imp5["warns"] or "") == "",
+      (_t400["user_id"] if _t400 else None, _negar))
+
 # --- تیکت از Excel خوانده و قابل جستجو است (رفع ایراد «تیکت‌ها خونده نمی‌شوند»)
 with A.app.app_context():
     t_rows = A.get_db().execute(
@@ -208,8 +293,11 @@ with A.app.app_context():
     cnt_ghost = A.get_db().execute("SELECT COUNT(*) c FROM activities").fetchone()["c"]
     titles_g = [x[0] for x in A.get_db().execute(
         "SELECT title FROM activities WHERE title IN ('شرکت سالم','داده زائد')")]
-check("ردیف ghost ثبت نمی‌شود", cnt_ghost == cnt_after and "داده زائد" not in titles_g,
-      (cnt_after, cnt_ghost))
+# قرارداد جدید (ورود تلرانت): ردیف با سلول کاملاً خالیِ ستون‌های شناخته‌شده => رد می‌شود؛
+# ردیف با مقدار معتبر در ستون موجود => حتی بدون ستون‌های الزامیِ غایب ثبت می‌شود
+check("ردیف خالی ghost ثبت نمی‌شود", "داده زائد" not in titles_g, titles_g)
+check("ردیف دارای مقدار در ستون موجود ثبت می‌شود (تلرانت)", cnt_ghost == cnt_after + 1
+      and "شرکت سالم" in titles_g, (cnt_after, cnt_ghost, titles_g))
 
 # قالب نمونه
 r = c.get(f"/import/template/{dom['id']}")

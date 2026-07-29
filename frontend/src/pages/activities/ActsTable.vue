@@ -4,6 +4,20 @@
 import { fa, statusClass, downloadCsv, readJson, sorter } from '@/lib/kit.js';
 
 const PER = 20;
+/* ستون‌های قابل‌نمایش: وضعیت (پیش‌فرض پنهان — با چشم/چنل ستون‌ها باز می‌شود)، تیکت، ضمیمه
+   انتخاب کاربر در localStorage ('acts-cols') ماندگار است */
+const COL_DEFS = [
+  { key: 'status', label: 'وضعیت', def: false },
+  { key: 'ticket', label: 'تیکت', def: true },
+  { key: 'atts', label: 'ضمیمه‌ها', def: true }
+];
+function _loadCols() {
+  const st = {};
+  try { Object.assign(st, JSON.parse(localStorage.getItem('acts-cols') || '{}')); } catch (e) {}
+  const out = {};
+  for (const c of COL_DEFS) out[c.key] = (c.key in st) ? !!st[c.key] : c.def;
+  return out;
+}
 
 export default {
   name: 'ActsTable',
@@ -18,17 +32,20 @@ export default {
       sortDir: 1,
       sel: [],
       page: 1,
-      cols: [
-        { k: 'title', t: 'عنوان' },
-        { k: 'domain', t: 'حوزه' },
-        { k: 'expert', t: 'کارشناس' },
-        { k: 'status', t: 'وضعیت' },
-        { k: 'date_key', t: 'تاریخ' },
-        { k: 'ticket_num', t: 'تیکت' }
+      show: _loadCols(),
+      colsBase: [
+        { k: 'title', t: 'عنوان', always: true },
+        { k: 'domain', t: 'حوزه', always: true },
+        { k: 'expert', t: 'کارشناس', always: true },
+        { k: 'status', t: 'وضعیت', key: 'status' },
+        { k: 'date_key', t: 'تاریخ', always: true },
+        { k: 'ticket_num', t: 'تیکت', key: 'ticket' }
       ]
     };
   },
   computed: {
+    cols() { return this.colsBase.filter(c => c.always || this.show[c.key]); },
+    colSpan() { return 3 + this.cols.length + (this.show.atts ? 1 : 0) + 1; },
     filtered() {
       let r = this.rows;
       const q = this.q.trim();
@@ -56,6 +73,11 @@ export default {
   },
   methods: {
     fa, stClass: statusClass,
+    colDefs: () => COL_DEFS,
+    toggleCol(k) {
+      this.show[k] = !this.show[k];
+      try { localStorage.setItem('acts-cols', JSON.stringify(this.show)); } catch (e) {}
+    },
     go(n) { this.page = Math.min(Math.max(1, n), this.pages); },
     toggleAll(e) {
       // انتخاب همه نتایجِ فیلترشده (نه فقط صفحه جاری)
@@ -87,6 +109,19 @@ export default {
         <input v-model="q" type="text" placeholder="جستجو در عنوان، تیکت، کارشناس...">
       </div>
       <span class="mute fs11" v-if="q">{{ fa(filtered.length) }} نتیجه</span>
+      <button type="button" class="btn ghost icon sm" id="eye-status"
+              :title="show.status ? 'پنهان‌کردن ستون وضعیت' : 'نمایش ستون وضعیت'"
+              @click="toggleCol('status')">
+        <svg class="ic"><use :href="show.status ? '#i-eye' : '#i-eye-off'"/></svg>
+      </button>
+      <details class="colpick">
+        <summary class="btn ghost sm"><svg class="ic"><use href="#i-sliders"/></svg> ستون‌ها</summary>
+        <div class="colpick-menu">
+          <label v-for="c in colDefs()" :key="c.key" class="colopt">
+            <input type="checkbox" :checked="show[c.key]" @change="toggleCol(c.key)"> {{ c.label }}
+          </label>
+        </div>
+      </details>
     </div>
     <div class="selbar no-print" :class="{on: selCount>0}">
       <span><b class="onum">{{ fa(selCount) }}</b> فعالیت انتخاب شد</span>
@@ -99,7 +134,7 @@ export default {
         <th v-for="c in cols" :key="c.k" class="sortable" :class="{on: sortKey===c.k}" @click="kToggleSort(c.k)">
           {{ c.t }} <span class="sa">{{ kSortIcon(c.k) }}</span>
         </th>
-        <th title="تعداد ضمیمه"><svg class="ic i14 ink3"><use href="#i-clip"/></svg></th>
+        <th v-if="show.atts" title="تعداد ضمیمه"><svg class="ic i14 ink3"><use href="#i-clip"/></svg></th>
         <th class="no-print">عملیات</th>
       </tr></thead>
       <tbody>
@@ -109,10 +144,10 @@ export default {
           <span class="tag warn" v-if="r.task" title="این فعالیت به این کارشناس تخصیص داده شده است"><svg class="ic"><use href="#i-alert"/></svg> تسک</span></td>
         <td><span class="nih"><svg class="ic dic"><use :href="'#'+r.icon"/></svg>{{ r.domain }}</span></td>
         <td>{{ r.expert }}</td>
-        <td><span class="badge" :class="stClass(r.status)">{{ r.status }}</span></td>
+        <td v-if="show.status"><span class="badge" :class="stClass(r.status)">{{ r.status }}</span></td>
         <td class="mute onum">{{ fa(r.date) }}</td>
-        <td class="mute onum">{{ r.ticket ? fa(r.ticket) : '—' }}</td>
-        <td><span class="tag onum" v-if="r.atts">{{ fa(r.atts) }}</span></td>
+        <td v-if="show.ticket" class="mute onum">{{ r.ticket ? fa(r.ticket) : '—' }}</td>
+        <td v-if="show.atts"><span class="tag onum" v-if="r.atts">{{ fa(r.atts) }}</span></td>
         <td class="no-print">
           <div class="btn-row">
             <a class="btn ghost icon" :href="r.view" title="مشاهده"><svg class="ic"><use href="#i-eye"/></svg></a>
@@ -121,7 +156,7 @@ export default {
           </div>
         </td>
       </tr>
-      <tr v-if="!filtered.length"><td colspan="9" class="mute tac" style="padding:26px">موردی با این جستجو یافت نشد.</td></tr>
+      <tr v-if="!filtered.length"><td :colspan="colSpan" class="mute tac" style="padding:26px">موردی با این جستجو یافت نشد.</td></tr>
       </tbody>
     </table></div>
     <div class="tbl-foot" v-if="filtered.length">

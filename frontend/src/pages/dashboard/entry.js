@@ -31,6 +31,7 @@ const dash = reactive({
   uploads: initial.last_uploads || [],
   months: (initial.charts && initial.charts.monthly) || [],
   range: initRange,
+  custom: null,
   monthHref(label) {
     const parts = String(label).split(' ');
     const mi = JMONTHS.indexOf(parts[0]);
@@ -41,7 +42,12 @@ const dash = reactive({
   },
   setRange(r) {
     this.range = r;
+    this.custom = null;
     try { localStorage.setItem('secman-rng', String(r)); } catch (e) {}
+  },
+  setCustom(i, j) {
+    if (i > j) [i, j] = [j, i];
+    this.custom = [i, j];
   }
 });
 
@@ -58,6 +64,12 @@ function applyAll(p) {
   dash.k.users_c = p.users_c; dash.k.last_date = p.last_date || '';
   if (p.charts) {
     mountChart('hbar', 'ch-acts', p.charts.domains);
+    if ((p.charts.experts || []).length) {
+      mountChart('hbar', 'ch-exp', p.charts.experts.map((x, i) => ({
+        ...x, color: ['#0d9488', '#0891b2', '#d97706', '#0284c7', '#059669', '#7c3aed',
+                      '#dc2626', '#f59e0b', '#14b8a6', '#64748b', '#0f766e', '#eab308'][i % 12]
+      })));
+    }
     dash.months = p.charts.monthly || [];
     mountChart('donut', 'ch-dom', p.charts.domains);
     mountChart('donut', 'ch-st', p.charts.status.map(x => ({

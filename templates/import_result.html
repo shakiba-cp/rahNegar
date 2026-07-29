@@ -20,6 +20,20 @@
   {% endif %}
 </div>
 
+{% if imp['dup_rows'] %}
+<div class="flash warning"><svg class="ic"><use href="#i-alert-tri"/></svg><span>{{ imp['dup_rows']|fa }} ردیف تکراری (همهٔ ستون‌هایشان مشابه یک فعالیت موجود بود) در این ورود نادیده گرفته شد.</span></div>
+{% endif %}
+
+{% if warns %}
+<div class="card">
+  <h3><svg class="ic i14" style="color:#d97706"><use href="#i-alert-tri"/></svg> هشدارها ({{ warns|length|fa }})</h3>
+  <ul style="padding-right:20px;font-size:12.5px;color:#92400e;line-height:2.1">
+    {% for w in warns[:60] %}<li>{{ w }}</li>{% endfor %}
+    {% if warns|length > 60 %}<li class="mute">… و {{ (warns|length - 60)|fa }} مورد دیگر</li>{% endif %}
+  </ul>
+</div>
+{% endif %}
+
 {% if errs %}
 <div class="card">
   <h3><svg class="ic" style="color:var(--bad)"><use href="#i-alert"/></svg> ردیف‌های دارای خطا ({{ errs|length|fa }})</h3>

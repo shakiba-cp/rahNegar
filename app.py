@@ -282,7 +282,8 @@ CREATE TABLE IF NOT EXISTS excel_imports(
   user_id INTEGER REFERENCES users(id),
   filename TEXT,
   total_rows INTEGER, success_rows INTEGER, error_rows INTEGER,
-  errors TEXT, imported_at TEXT
+  dup_rows INTEGER NOT NULL DEFAULT 0,
+  warns TEXT NOT NULL DEFAULT '', errors TEXT, imported_at TEXT
 );
 CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT);
 """
@@ -357,6 +358,15 @@ def init_db():
         pass
     try:
         db.execute("ALTER TABLE activities ADD COLUMN task_note TEXT NOT NULL DEFAULT ''")
+    except sqlite3.OperationalError:
+        pass
+    # مهاجرت نرم: ردیف‌های تکراریِ نادیده‌گرفته‌شده در ورود Excel
+    try:
+        db.execute("ALTER TABLE excel_imports ADD COLUMN dup_rows INTEGER NOT NULL DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        db.execute("ALTER TABLE excel_imports ADD COLUMN warns TEXT NOT NULL DEFAULT ''")
     except sqlite3.OperationalError:
         pass
     # مهاجرت‌های نرم v5.7: مجوزهای دانه‌ای + کارآموز/سرپرست
@@ -660,7 +670,7 @@ def build_report_charts(acts):
             ym = a["date"][:7]
             mon[ym] = mon.get(ym, 0) + 1
     months = []
-    for ym in sorted(mon)[-12:]:
+    for ym in sorted(mon)[-60:]:
         gy, gm = int(ym[:4]), int(ym[5:7])
         jy, jm, _ = jalali.g2j(gy, gm, 15)
         months.append({"label": f"{jalali.MONTH_NAMES[jm]} {jalali.fa(jy)}",
@@ -807,6 +817,10 @@ def dashboard_payload():
         SELECT e.*, d.name domain_name, u.full_name FROM excel_imports e
         LEFT JOIN domains d ON d.id=e.domain_id LEFT JOIN users u ON u.id=e.user_id
         ORDER BY e.id DESC LIMIT 5""").fetchall()
+    per_expert = db.execute(f"""
+        SELECT u.full_name n, COUNT(a.id) c FROM activities a
+        JOIN users u ON u.id=a.user_id WHERE 1=1 {mine}
+        GROUP BY a.user_id ORDER BY c DESC, u.full_name LIMIT 15""", mp).fetchall()
     last_acts = db.execute(f"""
         SELECT a.*, d.name domain_name, u.full_name expert_name FROM activities a
         JOIN domains d ON d.id=a.domain_id JOIN users u ON u.id=a.user_id
@@ -825,13 +839,14 @@ def dashboard_payload():
         _m += 1
         if _m > 12:
             _y, _m = _y + 1, 1
-    months = months[-24:]
+    months = months[-60:]  # تا ۵ سال تاریخچه — بازه با فیلتر سمت کلاینت محدود می‌شود
     charts = {
         "domains": [{"label": r["name"], "value": r["c"]} for r in per_domain],
         "status": [{"label": s, "value": next((r["c"] for r in per_status
                                                if r["status"] == s), 0)}
                    for s in STATUSES],
         "monthly": months,
+        "experts": [{"label": r["n"], "value": r["c"]} for r in per_expert],
     }
     today = jalali.today_jalali()
     tv = {"charts": charts, "total": total, "this_month": this_month,
@@ -1377,8 +1392,31 @@ def import_excel():
             flash("فقط فایل Excel با فرمت xlsx پذیرفته می‌شود.", "error")
             return redirect(url_for("import_excel"))
         domain = get_domain_or_404(domain_id)
-        result_id = _process_excel(domain, f.read(), f.filename)
-        return redirect(url_for("import_result", import_id=result_id))
+        data = f.read()
+        res = _process_excel(domain, data, f.filename)
+        if isinstance(res, dict):
+            # ردیف تکراری پیدا شد — پیش از هر ثبتی از کاربر سؤال می‌کنیم
+            token = secrets.token_hex(12)
+            tmp = os.path.join(UPLOAD_DIR, f"tmp_imp_{g.user['id']}_{token}.xlsx")
+            os.makedirs(UPLOAD_DIR, exist_ok=True)
+            with open(tmp, "wb") as fh:
+                fh.write(data)
+            session["imp_tmp"] = {"path": tmp, "domain_id": domain["id"],
+                                  "filename": f.filename, "domain_name": domain["name"],
+                                  "total": res["total"], "new_n": res["new_n"],
+                                  "dups": res["dups"], "errors_n": res["errors_n"]}
+            return render_template("import_preview.html", p=session["imp_tmp"],
+                                   imp_domains=[{"id": d["id"], "name": d["name"]} for d in domains])
+        return redirect(url_for("import_result", import_id=res))
+    # پاک‌سازی تنبلی فایل‌های موقت قدیمی (منتظر تأیید ردیف تکراری مانده‌اند)
+    try:
+        import glob as _glob
+        import time as _time
+        for pth in _glob.glob(os.path.join(UPLOAD_DIR, "tmp_imp_*.xlsx")):
+            if os.path.getmtime(pth) < _time.time() - 86400:
+                os.remove(pth)
+    except OSError:
+        pass
     return render_template("import_excel.html", domains=domains, icons=DOMAIN_ICONS,
                            imp_domains=[{"id": d["id"], "name": d["name"]} for d in domains])
 
@@ -1441,7 +1479,30 @@ def _map_excel_headers(headers, fields):
     return col_map, status_col
 
 
-def _process_excel(domain, data, filename):
+def _excel_sig(record, fids_sorted):
+    """امضای یک رکورد روی همهٔ فیلدهای فعال حوزه (ستون غایب = رشتهٔ خالی)."""
+    return tuple((fid, str(record.get(fid) or "").strip()) for fid in fids_sorted)
+
+
+def _domain_sigs(db, domain_id, fids_sorted):
+    """امضای همهٔ فعالیت‌های موجود حوزه — برای تشخیص ردیف تکراری."""
+    m = {}
+    for aid, fid, val in db.execute(
+            "SELECT a.id, v.field_id, v.value FROM activities a "
+            "LEFT JOIN activity_values v ON v.activity_id=a.id WHERE a.domain_id=?",
+            (domain_id,)):
+        if fid is not None:
+            m.setdefault(aid, {})[fid] = val
+    return {_excel_sig(vmap, fids_sorted) for vmap in m.values()}
+
+
+def _process_excel(domain, data, filename, dup_mode="ask"):
+    """پردازش فایل Excel حوزه.
+    dup_mode:
+      'ask'   — اگر ردیف تکراری (همهٔ ستون‌ها مشابه یک فعالیت موجود یا تکرار در خود فایل)
+                 باشد، چیزی ثبت نمی‌کند و دیکشنری پیش‌نمایش برمی‌گرداند تا از کاربر سؤال شود
+      'skip'  — فقط رکوردهای جدید ثبت می‌شوند؛ ردیف‌های تکراری نادیده گرفته می‌شوند
+      'force' — همهٔ رکوردهای معتبر ثبت می‌شوند (حتی تکراری‌ها)"""
     db = get_db()
     try:
         ws = load_workbook(io.BytesIO(data), read_only=True, data_only=True).active
@@ -1474,7 +1535,17 @@ def _process_excel(domain, data, filename):
         db.commit()
         return log_id
 
-    errors, success, total = [], 0, max(0, len(rows) - 1)
+    errors, success, warns = [], 0, []
+    total = max(0, len(rows) - 1)
+    fids_sorted = sorted(f["id"] for f in fields)
+    have_sigs, seen_sigs = set(), set()
+    if dup_mode != "force":
+        have_sigs = _domain_sigs(db, domain["id"], fids_sorted)
+    parsed, dups = [], []
+    # فیلد «کارشناس» (در صورت وجود در این حوزه) و نگاشت نام → کاربر سامانه
+    expert_fid = next((f["id"] for f in fields if (f["field_key"] or "") == "expert"), None)
+    users_by_name = {r["full_name"].strip(): r["id"] for r in
+                     db.execute("SELECT id, full_name FROM users WHERE is_active=1")}
     for idx, r in enumerate(rows[1:], start=2):
         if all(c is None or str(c).strip() == "" for c in r):
             total -= 1
@@ -1496,7 +1567,8 @@ def _process_excel(domain, data, filename):
                     txt = jalali.to_ascii_digits(txt)
                 if txt:
                     record[fld["id"]] = txt
-            if fld["required"] and not record.get(fld["id"]):
+            # فیلد الزامیِ «غایب از فایل» خطا نیست (ورود تلرانت: ستون‌های موجود خوانده می‌شوند)
+            if fld["required"] and col_map.get(fld["id"]) is not None and not record.get(fld["id"]):
                 row_err.append(f"ستون «{fld['label']}» خالی یا نامعتبر است")
         if not record and not row_err:
             row_err.append("هیچ مقدار معتبری در ستون‌های این حوزه یافت نشد")
@@ -1510,16 +1582,41 @@ def _process_excel(domain, data, filename):
                 status = st
         if g.user["role"] != "admin" and status == "بررسی شده":
             status = STATUSES[1]
+        # --- تشخیص ردیف تکراری: همهٔ ستون‌ها مشابه یک فعالیت موجود یا تکرار در خود فایل
+        sig = _excel_sig(record, fids_sorted)
+        if dup_mode != "force" and (sig in seen_sigs or sig in have_sigs):
+            seen_sigs.add(sig)
+            dups.append(idx)
+            continue
+        seen_sigs.add(sig)
+        # نگاشت کارشناس ردیف به کاربر سامانه — پیش‌فرض: خودِ آپلودکننده
+        owner_id = g.user["id"]
+        if expert_fid is not None:
+            ev = str(record.get(expert_fid) or "").strip()
+            if ev:
+                mu = users_by_name.get(ev)
+                if mu is not None:
+                    owner_id = mu
+                else:
+                    warns.append(f"ردیف {jalali.fa(idx)}: کارشناس «{ev}» در فهرست کاربران "
+                                 f"سامانه یافت نشد — فعالیت به نام شما ثبت شد")
+        parsed.append((record, status, owner_id))
+    if dup_mode == "ask" and dups:
+        return {"ask": True, "total": total, "new_n": len(parsed),
+                "dups": dups, "errors_n": len(errors)}
+    for record, status, owner_id in parsed:
         cur = db.execute("INSERT INTO activities(domain_id,user_id,status,created_at,"
                          "updated_at,created_by) VALUES(?,?,?,?,?,?)",
-                         (domain["id"], g.user["id"], status, now_iso(), now_iso(), g.user["id"]))
+                         (domain["id"], owner_id, status, now_iso(), now_iso(), g.user["id"]))
         save_values(cur.lastrowid, record)
         success += 1
     db.commit()
     log_id = db.execute("INSERT INTO excel_imports(domain_id,user_id,filename,total_rows,"
-                        "success_rows,error_rows,errors,imported_at) VALUES(?,?,?,?,?,?,?,?)",
+                        "success_rows,error_rows,errors,dup_rows,warns,imported_at) "
+                        "VALUES(?,?,?,?,?,?,?,?,?,?)",
                         (domain["id"], g.user["id"], filename, total, success,
-                         len(errors), "\n".join(errors[:200]), now_iso())).lastrowid
+                         len(errors), "\n".join(errors[:200]), len(dups),
+                         "\n".join(warns[:200]), now_iso())).lastrowid
     db.commit()
     if total == 0:
         flash("فایلی برای پردازش یافت نشد.", "error")
@@ -1528,7 +1625,59 @@ def _process_excel(domain, data, filename):
               f"خطا بودند.", "warning")
     else:
         flash(f"{jalali.fa(success)} فعالیت با موفقیت ثبت شد.", "success")
+    if dups:
+        flash(f"{jalali.fa(len(dups))} ردیف تکراری (همهٔ ستون‌هایشان مشابه یک فعالیت "
+              f"موجود بود) نادیده گرفته شد.", "warning")
+    if warns:
+        flash(f"{jalali.fa(len(warns))} ردیف کارشناس ناشناخته داشتند و به نام شما ثبت شدند "
+              f"(جزئیات در صفحهٔ نتیجه).", "warning")
     return log_id
+
+
+@app.route("/import/confirm", methods=["POST"])
+@perm_required("can_import")
+def import_confirm():
+    """تأیید نهایی ورود فایل پس از دیدن ردیف‌های تکراری."""
+    info = session.pop("imp_tmp", None)
+    choice = request.form.get("choice", "cancel")
+
+    def _cleanup():
+        try:
+            path = (info or {}).get("path", "")
+            if path and os.path.exists(path):
+                os.remove(path)
+        except OSError:
+            pass
+
+    if not info:
+        flash("جلسهٔ ورود فایل منقضی شده است؛ دوباره فایل را انتخاب کنید.", "error")
+        return redirect(url_for("import_excel"))
+    if choice == "cancel":
+        _cleanup()
+        flash("ورود فایل لغو شد؛ هیچ ردیفی ثبت نشد.", "warning")
+        return redirect(url_for("import_excel"))
+    path = info.get("path", "")
+    try:
+        import time as _time
+        fresh = os.path.exists(path) and os.path.getmtime(path) > _time.time() - 7200
+    except OSError:
+        fresh = False
+    if not fresh:
+        _cleanup()
+        flash("مهلتٔ تأیید فایل تمام شده است؛ دوباره فایل را انتخاب کنید.", "error")
+        return redirect(url_for("import_excel"))
+    domain = get_db().execute("SELECT * FROM domains WHERE id=?",
+                              (info["domain_id"],)).fetchone()
+    if not domain:
+        _cleanup()
+        flash("حوزهٔ انتخابی دیگر وجود ندارد.", "error")
+        return redirect(url_for("import_excel"))
+    with open(path, "rb") as fh:
+        data = fh.read()
+    mode = "force" if choice == "force" else "skip"
+    result_id = _process_excel(domain, data, info["filename"], dup_mode=mode)
+    _cleanup()
+    return redirect(url_for("import_result", import_id=result_id))
 
 
 @app.route("/import/<int:import_id>")
@@ -1544,7 +1693,8 @@ def import_result(import_id):
     if g.user["role"] != "admin" and imp["user_id"] != g.user["id"]:
         abort(403)
     errs = [e for e in (imp["errors"] or "").split("\n") if e]
-    return render_template("import_result.html", imp=imp, errs=errs)
+    warns = [w for w in (imp["warns"] or "").split("\n") if w]
+    return render_template("import_result.html", imp=imp, errs=errs, warns=warns)
 
 
 @app.route("/import/template/<int:domain_id>")
@@ -2175,14 +2325,18 @@ def _no_store_dynamic(resp):
 def _403(_e):
     if not getattr(g, "user", None):
         g.user = current_user()
+    if not g.user:
+        return redirect(url_for("login"))
     return render_template("error.html", code=403,
-                           msg="شما به این بخش دسترسی ندارید."), (403 if g.user else 401)
+                           msg="شما به این بخش دسترسی ندارید."), 403
 
 
 @app.errorhandler(404)
 def _404(_e):
     if not getattr(g, "user", None):
         g.user = current_user()
+    if not g.user:
+        return redirect(url_for("login"))
     return render_template("error.html", code=404, msg="صفحه یافت نشد."), 404
 
 
