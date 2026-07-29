@@ -195,6 +195,11 @@ td{padding:10px 15px;border-bottom:1px solid #f1f4f9;vertical-align:middle;color
 tbody tr{transition:background .12s}
 tbody tr:hover td{background:#f7f9ff}
 tbody tr.row-on td{background:#f4f6ff}
+tbody tr.row-fix td{background:#fef2f2}
+tbody tr.row-fix:hover td{background:#fee2e2}
+.tag.fix{background:#fee2e2;color:#b91c1c;border:1px solid #fecaca}
+html[data-theme="dark"] tbody tr.row-fix td{background:rgba(220,38,38,.1)}
+html[data-theme="dark"] .tag.fix{background:rgba(220,38,38,.2);color:#fca5a5;border-color:rgba(220,38,38,.35)}
 tbody tr:last-child td{border-bottom:none}
 .tbl-wrap th{position:sticky;top:0;z-index:2}
 td.secrow{background:#f8fafc;font-weight:700;color:var(--pri-600) !important}

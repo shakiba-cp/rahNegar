@@ -78,7 +78,7 @@ export function hbarSVG(data, uid) {
 export function donutSVG(data, uid) {
   const total = data.reduce((a, d) => a + d.value, 0) || 1;
   const cx = 132, cy = 132, R = 104, r = 60;
-  let ang = -Math.PI / 2, s = `<svg viewBox="0 0 264 264" xmlns="http://www.w3.org/2000/svg">`;
+  let ang = -Math.PI / 2, s = `<svg viewBox="0 0 264 264" width="264" height="264" xmlns="http://www.w3.org/2000/svg">`;
   data.forEach((d, i) => { d.color = d.color || PALETTE[i % PALETTE.length]; });
   const real = data.filter(d => d.value > 0);
   real.forEach((d, i) => {

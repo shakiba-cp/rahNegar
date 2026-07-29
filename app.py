@@ -251,7 +251,8 @@ CREATE TABLE IF NOT EXISTS activities(
   date TEXT,
   created_at TEXT,
   updated_at TEXT,
-  created_by INTEGER
+  created_by INTEGER,
+  flagged INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS responses(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -358,6 +359,10 @@ def init_db():
         pass
     try:
         db.execute("ALTER TABLE activities ADD COLUMN task_note TEXT NOT NULL DEFAULT ''")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        db.execute("ALTER TABLE activities ADD COLUMN flagged INTEGER NOT NULL DEFAULT 0")
     except sqlite3.OperationalError:
         pass
     # مهاجرت نرم: ردیف‌های تکراریِ نادیده‌گرفته‌شده در ورود Excel
@@ -643,6 +648,9 @@ def build_filters():
 
 def query_activities(where, params, limit=None, offset=0):
     sql = f"""SELECT a.*, d.name AS domain_name, u.full_name AS expert_name,
+             (SELECT v.value FROM activity_values v JOIN form_fields ff
+               ON ff.id=v.field_id AND ff.field_key='expert'
+              WHERE v.activity_id=a.id LIMIT 1) AS expert_txt,
              (SELECT COUNT(*) FROM attachments t WHERE t.activity_id=a.id) AS att_count
              FROM activities a
              JOIN domains d ON d.id=a.domain_id
@@ -819,7 +827,7 @@ def dashboard_payload():
         ORDER BY e.id DESC LIMIT 5""").fetchall()
     per_expert = db.execute(f"""
         SELECT u.full_name n, COUNT(a.id) c FROM activities a
-        JOIN users u ON u.id=a.user_id WHERE 1=1 {mine}
+        JOIN users u ON u.id=a.user_id WHERE 1=1 {mine} AND u.role != 'admin'
         GROUP BY a.user_id ORDER BY c DESC, u.full_name LIMIT 15""", mp).fetchall()
     last_acts = db.execute(f"""
         SELECT a.*, d.name domain_name, u.full_name expert_name FROM activities a
@@ -860,7 +868,7 @@ def dashboard_payload():
         "domains_n": len(charts["domains"]), "users_c": users_c, "charts": charts,
         "last_acts": [{"id": a["id"], "title": a["title"] or "بدون عنوان",
                        "domain": a["domain_name"], "icon": domain_icon(a["domain_name"]),
-                       "status": a["status"],
+                       "status": a["status"], "ticket": a["ticket"] or "",
                        "date": _jdate(a["date"]) if a["date"] else "—",
                        "view": url_for("activity_view", activity_id=a["id"])}
                       for a in last_acts],
@@ -918,7 +926,8 @@ def activities():
         "title": a["title"] or "بدون عنوان",
         "domain": a["domain_name"],
         "icon": domain_icon(a["domain_name"]),
-        "expert": a["expert_name"],
+        "expert": (a["expert_txt"] or a["expert_name"]),
+        "flagged": a["flagged"] if "flagged" in a.keys() else 0,
         "status": a["status"],
         "date": _jdate(a["date"]) if a["date"] else "—",
         "date_key": a["date"] or "",
@@ -1052,7 +1061,7 @@ def activity_view(activity_id):
     view_json = {
         "title": a["title"] or "بدون عنوان",
         "domain": a["domain_name"], "icon": domain_icon(a["domain_name"]),
-        "status": a["status"], "expert": a["expert_name"],
+        "status": a["status"], "expert": (a["expert_txt"] or a["expert_name"]) if "expert_txt" in a.keys() else a["expert_name"],
         "creator": creator["full_name"] if creator else "",
         "back_url": url_for("activities"),
         "vals_sections": vals_sections,
@@ -1132,7 +1141,7 @@ def activity_edit(activity_id):
                 if oid and db.execute("SELECT 1 FROM users WHERE id=? AND is_active=1",
                                       (oid,)).fetchone():
                     owner_id = oid
-            db.execute("UPDATE activities SET status=?, user_id=?, updated_at=? WHERE id=?",
+            db.execute("UPDATE activities SET status=?, user_id=?, updated_at=?, flagged=0 WHERE id=?",
                        (status, owner_id, now_iso(), activity_id))
             save_values(activity_id, values)
             db.commit()
@@ -1506,6 +1515,23 @@ def _domain_sigs(db, domain_id, fids_sorted):
     return {_excel_sig(vmap, fids_sorted) for vmap in m.values()}
 
 
+def _domain_sig_map(db, domain_id, fids_sorted):
+    """نگاشت امضای فعالیت‌های حوزه به فهرست (id, user_id) —
+    برای اصلاح کارشناس ردیف‌های تکراریِ قبلاً ثبت‌شده."""
+    m, owners = {}, {}
+    for aid, uid, fid, val in db.execute(
+            "SELECT a.id, a.user_id, v.field_id, v.value FROM activities a "
+            "LEFT JOIN activity_values v ON v.activity_id=a.id WHERE a.domain_id=?",
+            (domain_id,)):
+        owners[aid] = uid
+        if fid is not None:
+            m.setdefault(aid, {})[fid] = val
+    out = {}
+    for aid, vmap in m.items():
+        out.setdefault(_excel_sig(vmap, fids_sorted), []).append((aid, owners.get(aid)))
+    return out
+
+
 def _process_excel(domain, data, filename, dup_mode="ask"):
     """پردازش فایل Excel حوزه.
     dup_mode:
@@ -1545,15 +1571,21 @@ def _process_excel(domain, data, filename, dup_mode="ask"):
         db.commit()
         return log_id
 
-    errors, success, warns = [], 0, []
+    errors, success, warns, owner_fix = [], 0, [], 0
     total = max(0, len(rows) - 1)
     fids_sorted = sorted(f["id"] for f in fields)
-    have_sigs, seen_sigs = set(), set()
+    have_sigs, seen_sigs, sig_map = set(), set(), {}
     if dup_mode != "force":
-        have_sigs = _domain_sigs(db, domain["id"], fids_sorted)
+        sig_map = _domain_sig_map(db, domain["id"], fids_sorted)
+        have_sigs = set(sig_map)
     parsed, dups = [], []
     # فیلد «کارشناس» (در صورت وجود در این حوزه) و نگاشت نام → کاربر سامانه
     expert_fid = next((f["id"] for f in fields if (f["field_key"] or "") == "expert"), None)
+    if expert_fid is not None and col_map.get(expert_fid) is None and total:
+        _elbl = _norm_header(next((f["label"] for f in fields if f["id"] == expert_fid), "کارشناس"))
+        warns.append(f"ستون کارشناس (با نام «{_elbl}») در فایل یافت نشد — "
+                     f"همهٔ ردیف‌ها به نام شما ثبت شدند. برای ثبت به نام کارشناس هر ردیف، "
+                     f"ستونی با همین نام به فایل اضافه کنید.")
     users_by_name = {}
     for r in db.execute("SELECT id, username, full_name FROM users WHERE is_active=1"):
         users_by_name[_norm_person(r["full_name"])] = r["id"]
@@ -1584,9 +1616,15 @@ def _process_excel(domain, data, filename, dup_mode="ask"):
                 row_err.append(f"ستون «{fld['label']}» خالی یا نامعتبر است")
         if not record and not row_err:
             row_err.append("هیچ مقدار معتبری در ستون‌های این حوزه یافت نشد")
+        if not record:
+            # ردیف «روح»: هیچ مقدار معتبری ندارد — هرگز ثبت نمی‌شود
+            if row_err:
+                errors.append(f"ردیف {jalali.fa(idx)}: " + "؛ ".join(row_err))
+            continue
+        # ردیف‌های دارای نقصِ جزیی «وارد» می‌شوند اما با پرچم «نیازمند اصلاح» (قرمز در لیست)
+        flag = 1 if row_err else 0
         if row_err:
             errors.append(f"ردیف {jalali.fa(idx)}: " + "؛ ".join(row_err))
-            continue
         status = STATUSES[0]
         if status_col is not None and status_col < len(r) and r[status_col]:
             st = _norm_header(r[status_col])
@@ -1594,32 +1632,42 @@ def _process_excel(domain, data, filename, dup_mode="ask"):
                 status = st
         if g.user["role"] != "admin" and status == "بررسی شده":
             status = STATUSES[1]
-        # --- تشخیص ردیف تکراری: همهٔ ستون‌ها مشابه یک فعالیت موجود یا تکرار در خود فایل
-        sig = _excel_sig(record, fids_sorted)
-        if dup_mode != "force" and (sig in seen_sigs or sig in have_sigs):
-            seen_sigs.add(sig)
-            dups.append(idx)
-            continue
-        seen_sigs.add(sig)
         # نگاشت کارشناس ردیف به کاربر سامانه — پیش‌فرض: خودِ آپلودکننده
-        owner_id = g.user["id"]
+        owner_id, owner_mapped = g.user["id"], False
         if expert_fid is not None:
             ev = str(record.get(expert_fid) or "").strip()
             if ev:
                 mu = users_by_name.get(_norm_person(ev))
                 if mu is not None:
-                    owner_id = mu
+                    owner_id, owner_mapped = mu, True
                 else:
                     warns.append(f"ردیف {jalali.fa(idx)}: کارشناس «{ev}» در فهرست کاربران "
                                  f"سامانه یافت نشد — فعالیت به نام شما ثبت شد")
-        parsed.append((record, status, owner_id))
+        # --- تشخیص ردیف تکراری: همهٔ ستون‌ها مشابه یک فعالیت موجود یا تکرار در خود فایل
+        sig = _excel_sig(record, fids_sorted)
+        if dup_mode != "force" and (sig in seen_sigs or sig in have_sigs):
+            seen_sigs.add(sig)
+            dups.append(idx)
+            # اصلاح کارشناس فعالیتِ قبلاً ثبت‌شده وقتی فایل نام کارشناس را دارد
+            # (به‌ویژه برای داده‌هایی که قبل از این قابلیت وارد شده‌اند)
+            if owner_mapped and dup_mode == "skip" and sig in sig_map:
+                for aid, ouid in sig_map[sig]:
+                    if ouid != owner_id:
+                        db.execute("UPDATE activities SET user_id=?, updated_at=? WHERE id=?",
+                                   (owner_id, now_iso(), aid))
+                        owner_fix += 1
+            continue
+        seen_sigs.add(sig)
+        parsed.append((record, status, owner_id, flag))
     if dup_mode == "ask" and dups:
         return {"ask": True, "total": total, "new_n": len(parsed),
                 "dups": dups, "errors_n": len(errors)}
-    for record, status, owner_id in parsed:
+    flagged_n = sum(1 for _,_,_,fl in parsed if fl)
+    for record, status, owner_id, fl in parsed:
         cur = db.execute("INSERT INTO activities(domain_id,user_id,status,created_at,"
-                         "updated_at,created_by) VALUES(?,?,?,?,?,?)",
-                         (domain["id"], owner_id, status, now_iso(), now_iso(), g.user["id"]))
+                         "updated_at,created_by,flagged) VALUES(?,?,?,?,?,?,?)",
+                         (domain["id"], owner_id, status, now_iso(), now_iso(),
+                          g.user["id"], fl))
         save_values(cur.lastrowid, record)
         success += 1
     db.commit()
@@ -1640,6 +1688,12 @@ def _process_excel(domain, data, filename, dup_mode="ask"):
     if dups:
         flash(f"{jalali.fa(len(dups))} ردیف تکراری (همهٔ ستون‌هایشان مشابه یک فعالیت "
               f"موجود بود) نادیده گرفته شد.", "warning")
+    if owner_fix:
+        flash(f"کارشناس {jalali.fa(owner_fix)} فعالیتِ قبلاً ثبت‌شده مطابق ستون کارشناس "
+              f"فایل اصلاح شد.", "success")
+    if flagged_n:
+        flash(f"{jalali.fa(flagged_n)} ردیف دارای نقص وارد شد و با برچسب قرمز "
+              f"«نیازمند اصلاح» علامت خورد — بعداً آن‌ها را ویرایش و اصلاح کنید.", "warning")
     if warns:
         valid_names = "، ".join(sorted({r["full_name"] for r in db.execute(
             "SELECT full_name FROM users WHERE is_active=1")}))
@@ -1798,7 +1852,7 @@ def reports():
         "title": a["title"] or "بدون عنوان",
         "domain": a["domain_name"],
         "icon": domain_icon(a["domain_name"]),
-        "expert": a["expert_name"],
+        "expert": (a["expert_txt"] or a["expert_name"]) if "expert_txt" in a.keys() else a["expert_name"],
         "status": a["status"],
         "date": _jdate(a["date"]) if a["date"] else "—",
         "date_key": a["date"] or "",

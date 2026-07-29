@@ -138,9 +138,10 @@ export default {
         <th class="no-print">عملیات</th>
       </tr></thead>
       <tbody>
-      <tr v-for="r in paged" :key="r.id" :class="{'row-on': sel.includes(r.id)}">
+      <tr v-for="r in paged" :key="r.id" :class="{'row-on': sel.includes(r.id), 'row-fix': r.flagged}">
         <td class="selc"><input type="checkbox" :value="r.id" v-model="sel"></td>
         <td><a :href="r.view" class="fw7 ink1">{{ r.title }}</a>
+          <span class="tag fix" v-if="r.flagged" title="این فعالیت هنگام ورود از Excel ناقص/نامعتبر بوده — ویرایش و اصلاحش کنید"><svg class="ic"><use href="#i-alert"/></svg> نیازمند اصلاح</span>
           <span class="tag warn" v-if="r.task" title="این فعالیت به این کارشناس تخصیص داده شده است"><svg class="ic"><use href="#i-alert"/></svg> تسک</span></td>
         <td><span class="nih"><svg class="ic dic"><use :href="'#'+r.icon"/></svg>{{ r.domain }}</span></td>
         <td>{{ r.expert }}</td>

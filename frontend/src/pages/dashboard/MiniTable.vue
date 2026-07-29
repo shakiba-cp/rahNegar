@@ -17,11 +17,12 @@ export default {
 <template>
   <div v-if="kind==='acts'">
     <div v-if="rows.length" class="tbl-wrap"><table>
-      <thead><tr><th>عنوان</th><th>حوزه</th><th>تاریخ</th></tr></thead>
+      <thead><tr><th>عنوان</th><th>حوزه</th><th>تیکت</th><th>تاریخ</th></tr></thead>
       <tbody>
       <tr v-for="a in rows" :key="a.id">
         <td><a :href="a.view" class="fw7 ink1">{{ a.title }}</a></td>
         <td><span class="nih"><svg class="ic dic"><use :href="'#'+a.icon"/></svg>{{ a.domain }}</span></td>
+        <td class="mute onum">{{ a.ticket ? fa(a.ticket) : '—' }}</td>
         <td class="mute">{{ a.date }}</td>
       </tr>
       </tbody>
