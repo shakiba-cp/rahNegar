@@ -94,7 +94,7 @@ export default {
         </div>
         <a class="btn ghost sm" :href="p.change_url"><svg class="ic i14"><use href="#i-layers"/></svg> تغییر حوزه</a>
       </div>
-      <form method="post">
+      <form method="post" enctype="multipart/form-data">
         <div class="card fcard">
           <div class="form-grid">
             <div class="status-top">
@@ -154,7 +154,7 @@ export default {
     <!-- ==================== حالت ویرایش ==================== -->
     <template v-else>
       <div class="card">
-        <form method="post">
+        <form method="post" enctype="multipart/form-data">
           <div class="form-grid">
             <template v-for="sec in sections" :key="sec.name || 'main'">
               <details v-if="isCommon(sec)" class="csec" :class="isDelivery(sec) ? 'delivery' : 'request'" :open="secHasValue(sec)">

@@ -82,6 +82,8 @@ DOMAIN_FIELDS = {
         ("توضیحات", "textarea", None, [], 0, ""),
     ],
     "ارزیابی امنیتی وب": [
+        ("شناسه", "text", None, [], 0, ""),
+        ("شناسه فرآیند", "text", None, [], 0, ""),
         ("تاریخ", "date", "date", [], 1, ""),
         ("کارشناس", "text", "expert", [], 1, ""),
         ("کارفرما", "text", "title", [], 1, ""),
@@ -101,6 +103,7 @@ DOMAIN_FIELDS = {
         ("توضیحات", "textarea", None, [], 0, ""),
     ],
     "ارزیابی امنیتی اندروید": [
+        ("شناسه", "text", None, [], 0, ""),
         ("تاریخ", "date", "date", [], 1, ""),
         ("کارشناس", "text", "expert", [], 1, ""),
         ("کارفرما", "text", "title", [], 1, ""),
@@ -416,6 +419,27 @@ def init_db():
                                        WHERE name='ارزیابی امنیتی وب' LIMIT 1)""")
     except sqlite3.OperationalError:
         pass
+    # هم‌ترازی افزودنی حوزه‌ها با نسخهٔ جدید: فیلدهای تعریف‌شدهٔ جدید (مثل «شناسه فرآیند»)
+    # به حوزه‌های موجود اضافه می‌شوند — هیچ فیلدی حذف یا تغییرنام نمی‌یابد تا داده‌ها سالم بمانند.
+    try:
+        for _name, _defs in DOMAIN_FIELDS.items():
+            _dom = db.execute("SELECT id FROM domains WHERE name=?", (_name,)).fetchone()
+            if not _dom:
+                continue
+            _have = {r["label"] for r in db.execute(
+                "SELECT label FROM form_fields WHERE domain_id=?", (_dom["id"],))}
+            _mx = db.execute("SELECT COALESCE(MAX(sort_order),0) m FROM form_fields "
+                             "WHERE domain_id=?", (_dom["id"],)).fetchone()["m"]
+            for (_label, _ftype, _fkey, _opts, _req, _sec) in _defs:
+                if _label in _have:
+                    continue
+                _mx += 1
+                db.execute("INSERT INTO form_fields(domain_id,label,field_key,field_type,"
+                           "section,options,required,sort_order) VALUES(?,?,?,?,?,?,?,?)",
+                           (_dom["id"], _label, _fkey, _ftype, _sec,
+                            json.dumps(_opts, ensure_ascii=False), _req, _mx))
+    except sqlite3.OperationalError:
+        pass
     db.commit()
 
 
@@ -577,11 +601,18 @@ def parse_jalali_triplet(src, prefix, required, label):
     return jalali.j_parts_to_g_iso(*parsed), None
 
 
-def collect_values(fields, form, user):
+def collect_values(fields, form, user, files=None):
     """قرائت مقادیر فیلدهای پویا از فرم -> (dict[field_id]=value, [errors])"""
     values, errors = {}, []
     for f in fields:
         fid, ftype = f["id"], f["field_type"]
+        if ftype == "file":
+            # فیلدهای فایل: مقدار متنی در فرم نیست؛ فایل جدید یا مقدار قبلی کافی است
+            up = (files or {}).get(f"ff{fid}")
+            has_old = bool(form.get(f"curf{fid}", "").strip())
+            if f["required"] and not (up and up.filename) and not has_old:
+                errors.append(f"فیلد «{f['label']}» (فایل) الزامی است.")
+            continue
         if ftype == "date":
             iso, err = parse_jalali_triplet(form, f"f{fid}_", f["required"], f["label"])
             if err:
@@ -1039,7 +1070,7 @@ def activity_new():
         abort(404)
     fields = get_fields(domain_id)
     if request.method == "POST":
-        values, errors = collect_values(fields, request.form, g.user)
+        values, errors = collect_values(fields, request.form, g.user, request.files)
         status = request.form.get("status", STATUSES[0])
         if status not in STATUSES:
             status = STATUSES[0]
@@ -1060,6 +1091,7 @@ def activity_new():
                              (domain_id, owner_id, status, now_iso(), now_iso(),
                               g.user["id"]))
             save_values(cur.lastrowid, values)
+            _save_field_files(db, cur.lastrowid, fields, request.files)
             db.commit()
             owner = db.execute("SELECT full_name FROM users WHERE id=?",
                                (owner_id,)).fetchone()
@@ -1124,14 +1156,19 @@ def activity_view(activity_id):
         creator = db.execute("SELECT full_name FROM users WHERE id=?",
                              (a["created_by"],)).fetchone()
     # داده JSON برای رندر تعاملی Vue 3 (افزودنی)
+    att_by_name = {t["original_name"]: url_for("attachment_download", att_id=t["id"])
+                   for t in atts}
     vals_sections = []
     for sec, fs in grouped_fields(fields):
         vals_sections.append({
             "name": sec or "",
             "icon": "i-user" if "درخواست‌دهنده" in sec else "i-send",
             "rows": [{"label": f["label"],
+                      "ftype": f["field_type"],
                       "val": (_jdate(vals[f["id"]]) if f["field_type"] == "date"
-                              and vals.get(f["id"]) else (vals.get(f["id"]) or ""))}
+                              and vals.get(f["id"]) else (vals.get(f["id"]) or "")),
+                      "dl": (att_by_name.get(vals.get(f["id"]) or "", "")
+                             if f["field_type"] == "file" else "")}
                      for f in fs],
         })
     view_json = {
@@ -1139,6 +1176,9 @@ def activity_view(activity_id):
         "domain": a["domain_name"], "icon": domain_icon(a["domain_name"]),
         "status": a["status"], "expert": (a["expert_txt"] or a["expert_name"]) if "expert_txt" in a.keys() else a["expert_name"],
         "creator": creator["full_name"] if creator else "",
+        "flagged": bool(a["flagged"]) if "flagged" in a.keys() else False,
+        "date_fa": _jdate(a["date"]) if a["date"] else "",
+        "ticket": a["ticket"] or "",
         "back_url": url_for("activities"),
         "vals_sections": vals_sections,
         "responses": [{"user": r["full_name"], "role": r["role"],
@@ -1200,7 +1240,7 @@ def activity_edit(activity_id):
     fields = get_fields(a["domain_id"])
     vals = activity_values_map(a["id"])
     if request.method == "POST":
-        values, errors = collect_values(fields, request.form, g.user)
+        values, errors = collect_values(fields, request.form, g.user, request.files)
         status = request.form.get("status", a["status"])
         if status not in STATUSES:
             status = a["status"]
@@ -1220,6 +1260,7 @@ def activity_edit(activity_id):
             db.execute("UPDATE activities SET status=?, user_id=?, updated_at=?, flagged=0 WHERE id=?",
                        (status, owner_id, now_iso(), activity_id))
             save_values(activity_id, values)
+            _save_field_files(db, activity_id, fields, request.files)
             db.commit()
             flash("فعالیت به‌روزرسانی شد.", "success")
             return redirect(url_for("activity_view", activity_id=activity_id))
@@ -1346,6 +1387,26 @@ def _save_attachments(db, activity_id, files):
                    (activity_id, stored, f.filename, len(data), g.user["id"], now_iso()))
         saved += 1
     return saved, errs
+
+
+def _save_field_files(db, activity_id, fields, files):
+    """ذخیره فایل فیلدهای «file» فرم پویا: فایل به پیوست‌ها می‌رود و مقدار فیلد = نام فایل."""
+    if not files:
+        return
+    for f in fields:
+        if f["field_type"] != "file":
+            continue
+        up = files.get(f"ff{f['id']}")
+        if not up or not up.filename:
+            continue
+        saved, errs = _save_attachments(db, activity_id, [up])
+        for e in errs:
+            flash(e, "error")
+        if saved:
+            db.execute("INSERT INTO activity_values(activity_id,field_id,value) VALUES(?,?,?)"
+                       " ON CONFLICT(activity_id,field_id) DO UPDATE SET value=excluded.value",
+                       (activity_id, f["id"], up.filename))
+    _sync_meta(activity_id)
 
 
 @app.route("/tasks", methods=["GET", "POST"])
@@ -2363,7 +2424,7 @@ def fields_page(domain_id):
         WHERE v.field_id=f.id) value_count FROM form_fields f WHERE f.domain_id=?
         ORDER BY f.sort_order, f.id""", (domain_id,)).fetchall()
     # داده JSON برای فهرست تعاملی Vue 3 (افزودنی)
-    type_fa = {"text": "متن", "textarea": "متن بلند", "number": "عدد",
+    type_fa = {"text": "متن", "textarea": "متن بلند", "number": "عدد", "file": "فایل",
                "date": "تاریخ", "select": "لیست کشویی"}
     fields_vjson = [{
         "id": f["id"], "label": f["label"], "type": f["field_type"],
@@ -2388,7 +2449,7 @@ def field_add(domain_id):
     ftype = request.form.get("field_type", "text")
     options = [o.strip() for o in request.form.get("options", "").split("\n") if o.strip()]
     section = request.form.get("section", "").strip()
-    if ftype not in ("text", "textarea", "number", "date", "select"):
+    if ftype not in ("text", "textarea", "number", "date", "select", "file"):
         ftype = "text"
     if not label:
         flash("نام فیلد الزامی است.", "error")

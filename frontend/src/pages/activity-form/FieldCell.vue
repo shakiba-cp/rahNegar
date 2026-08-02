@@ -25,7 +25,7 @@ export default {
 };
 </script>
 <template>
-  <div :class="{full: f.type==='textarea'}">
+  <div :class="{full: f.type==='textarea' || f.type==='file'}">
     <label :class="{req: f.required}" :for="'f'+f.id">{{ f.label }}</label>
     <textarea v-if="f.type==='textarea'" :name="'f'+f.id" :id="'f'+f.id" :required="f.required" rows="3">{{ v }}</textarea>
     <select v-else-if="f.type==='select'" :name="'f'+f.id" :id="'f'+f.id" :required="f.required">
@@ -36,6 +36,12 @@ export default {
     <template v-else-if="f.type==='date'">
       <TripSelects :base="'f'+f.id" :parts="dparts"></TripSelects>
       <div v-if="f.required" class="req-note"><svg class="ic i14"><use href="#i-alert-tri"/></svg> این فیلد الزامی است — بدون تاریخ ثبت نمی‌شود.</div>
+    </template>
+    <template v-else-if="f.type==='file'">
+      <input type="file" :name="'ff'+f.id" :id="'f'+f.id" :required="f.required && !v" class="upinput">
+      <input type="hidden" :name="'curf'+f.id" :value="v">
+      <div v-if="v" class="req-note"><svg class="ic i14"><use href="#i-file"/></svg> فایل فعلی: <b>{{ v }}</b> — برای جایگزینی، فایل تازه انتخاب کنید (در فهرست پیوست‌ها هم ذخیره می‌شود).</div>
+      <div v-else class="req-note"><svg class="ic i14"><use href="#i-upload"/></svg> فایل همین‌جا آپلود و در پیوست‌های فعالیت ذخیره می‌شود.</div>
     </template>
     <input v-else type="text" :name="'f'+f.id" :id="'f'+f.id" :value="v" :required="f.required">
   </div>

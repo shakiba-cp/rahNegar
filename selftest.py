@@ -449,7 +449,8 @@ c.get("/logout"); login("admin", "admin123")
 r = c.get("/reports?export=excel")
 wb3 = load_workbook(io.BytesIO(r.data))
 hdrs = [x.value for x in wb3.active[1]]
-check("خروجی شناسه سیستمی ندارد", "شناسه" not in hdrs, hdrs)
+check("خروجی شناسه سیستمی (id دیتابیس) ندارد",
+      not any(h in ("id", "شناسه سیستمی") for h in hdrs), hdrs)
 check("تیکت فقط یک ستون", hdrs.count("شماره تیکت") == 1, hdrs)
 check("همه فیلدها در خروجی‌اند", "زمان درخواست" in hdrs and "آسیب پذیری" in hdrs, hdrs)
 
@@ -583,5 +584,60 @@ _wb2 = load_workbook(io.BytesIO(r.data), read_only=True); _ws2 = _wb2.active
 _hd2 = [c0.value for c0 in next(_ws2.iter_rows(max_row=1))]
 check("ستون «شماره تیکت» برای حوزهٔ بدون تیکت حذف شد",
       "شماره تیکت" not in _hd2, _hd2)
+
+# ---------- فیلد نوع «فایل»: آپلود مستندات از داخل فرم ----------
+r = c.post(f"/domains/{_web['id']}/fields/add",
+           data={"label": "گزارش نهایی", "field_type": "file"}, follow_redirects=True)
+check("افزودن فیلد نوع «فایل»", "فیلد افزوده شد".encode() in r.data)
+with A.app.app_context():
+    _d = A.get_db()
+    _wf = {r0["label"]: r0 for r0 in _d.execute(
+        "SELECT * FROM form_fields WHERE domain_id=?", (_web["id"],))}
+    _ff = _wf["گزارش نهایی"]
+_tid = _wf["تاریخ"]["id"]
+form = {"status": "در حال انجام",
+        f"f{_wf['کارشناس']['id']}": "مدیر سامانه",
+        f"f{_wf['کارفرما']['id']}": "بانک تست فایل",
+        f"f{_wf['شدت']['id']}": "زیاد",
+        f"f{_tid}__y": "1405", f"f{_tid}__m": "05", f"f{_tid}__d": "01",
+        f"ff{_ff['id']}": (io.BytesIO(b"PDFDATA-TEST"), "report-final.pdf")}
+r = c.post(f"/activities/new?domain_id={_web['id']}", data=form,
+           content_type="multipart/form-data", follow_redirects=True)
+check("ثبت فعالیت همراه فیلد فایل", "با موفقیت ثبت شد".encode() in r.data, r.data[:60])
+with A.app.app_context():
+    _d = A.get_db()
+    _act = _d.execute("SELECT id FROM activities ORDER BY id DESC LIMIT 1").fetchone()
+    _att = _d.execute("""SELECT * FROM attachments
+                         WHERE activity_id=? AND original_name='report-final.pdf'""",
+                      (_act["id"],)).fetchone()
+    _val = _d.execute("SELECT value FROM activity_values WHERE activity_id=? AND field_id=?",
+                      (_act["id"], _ff["id"])).fetchone()
+check("فایل در پیوست‌ها ذخیره و مقدار فیلد = نام فایل",
+      _att is not None and _val is not None and _val["value"] == "report-final.pdf",
+      (_att["id"] if _att else None, _val["value"] if _val else None))
+if _att:
+    r = c.get(f"/attachments/{_att['id']}/download")
+    check("دانلود فایلِ فیلد فایل", r.status_code == 200 and r.data == b"PDFDATA-TEST",
+          r.status_code)
+r = c.get(f"/activities/{_act['id']}")
+check("صفحه جزئیات: نام فایل فیلد نمایش داده می‌شود",
+      "report-final.pdf".encode() in r.data)
+
+# بنر «نیازمند اصلاح» در صفحه جزئیات
+with A.app.app_context():
+    _flr = A.get_db().execute("SELECT id FROM activities WHERE flagged=1 LIMIT 1").fetchone()
+if _flr:
+    r = c.get(f"/activities/{_flr['id']}")
+    check("بنر «نیازمند اصلاح» در صفحه جزئیات (flagged در JSON)",
+      b'"flagged": true' in r.data, r.data[-200:])
+else:
+    check("بنر «نیازمند اصلاح» در صفحه جزئیات", False, "ردیف flagged یافت نشد")
+
+# هم‌ترازی افزودنی: «شناسه فرآیند» به تعریف حوزه وب اضافه شده است
+with A.app.app_context():
+    _sp = A.get_db().execute("""SELECT 1 FROM form_fields
+                                WHERE domain_id=? AND label='شناسه فرآیند'""",
+                             (_web["id"],)).fetchone()
+check("هم‌ترازی حوزه‌ها: «شناسه فرآیند» موجود است", _sp is not None)
 
 print(f"\n✅ همه {len(ok)} تست موفقیت‌آمیز بود.")

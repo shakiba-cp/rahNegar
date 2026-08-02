@@ -5,34 +5,62 @@ import { readJson, faNum as fa, statusClass } from '@/lib/kit.js';
 export default {
   name: 'AViewApp',
   data() { return { p: readJson('aview-data') || {} }; },
+  computed: {
+    mainRows() { const s = (this.p.vals_sections || []).find(x => !x.name); return s ? s.rows : []; },
+    secSections() { return (this.p.vals_sections || []).filter(x => x.name); },
+    hasMain() { return this.mainRows.some(r => r.val); },
+  },
   methods: { fa, stClass: statusClass },
 };
 </script>
 <template>
   <div>
     <div class="card">
-      <div class="fl mb-4">
+      <div v-if="p.flagged" class="vflag"><svg class="ic"><use href="#i-alert"/></svg><div><b>این فعالیت «نیازمند اصلاح» علامت خورده است.</b><div class="mute">هنگام ورود از Excel بخشی از داده‌هایش خالی یا نامعتبر بود — آن را ویرایش و تکمیل کنید تا برچسب برداشته شود.</div></div></div>
+      <div class="fl mb-2">
         <div class="dtile"><svg class="ic i23"><use :href="'#'+p.icon"/></svg></div>
         <div class="nih">
           <div class="fs16 fw8 ink1">{{ p.title }}</div>
           <div class="mute"><svg class="ic dic"><use :href="'#'+p.icon"/></svg>{{ p.domain }}</div>
         </div>
       </div>
-      <div class="tbl-wrap"><table>
-        <thead><tr><th class="w220">فیلد</th><th>مقدار</th></tr></thead>
-        <tbody>
-        <tr><td>وضعیت</td><td><span class="badge" :class="stClass(p.status)">{{ p.status }}</span></td></tr>
-        <tr><td>مالک / مسئول</td><td>{{ p.expert }}</td></tr>
-        <tr v-if="p.creator"><td>ثبت‌کننده</td><td>{{ p.creator }}</td></tr>
-        <template v-for="s in (p.vals_sections||[])" :key="s.name || 'main'">
-          <tr v-if="s.name"><td colspan="2" class="secrow"><svg class="ic i14 va-m ml-1"><use :href="'#'+s.icon"/></svg>{{ s.name }}</td></tr>
-          <tr v-for="r in s.rows" :key="s.name + r.label">
-            <td>{{ r.label }}</td>
-            <td class="prew"><template v-if="r.val">{{ r.val }}</template><span v-else class="mute">—</span></td>
-          </tr>
-        </template>
-        </tbody>
-      </table></div>
+      <div class="vchips">
+        <span class="badge" :class="stClass(p.status)">{{ p.status }}</span>
+        <span class="vchip"><svg class="ic i14"><use href="#i-user"/></svg>{{ p.expert }}</span>
+        <span class="vchip" v-if="p.creator"><svg class="ic i14"><use href="#i-pencil"/></svg>ثبت‌کننده: {{ p.creator }}</span>
+        <span class="vchip" v-if="p.date_fa"><svg class="ic i14"><use href="#i-cal"/></svg>{{ p.date_fa }}</span>
+        <span class="vchip" v-if="p.ticket"><svg class="ic i14"><use href="#i-ticket"/></svg>{{ p.ticket }}</span>
+      </div>
+
+      <!-- فیلدهای اصلی: کارت‌های برجسته -->
+      <template v-if="mainRows.length">
+        <div class="sec-kicker"><svg class="ic i14"><use href="#i-doc"/></svg> اطلاعات اصلی</div>
+        <div class="dlgrid" :class="{emptyish: !hasMain}">
+          <div class="vf" v-for="r in mainRows" :key="'m'+r.label" :class="{big: r.ftype==='textarea'}">
+            <div class="vl">{{ r.label }}</div>
+            <div class="vv prew" v-if="r.val">
+              <a v-if="r.dl" :href="r.dl" class="vfile"><svg class="ic i14"><use href="#i-download"/></svg>{{ r.val }}</a>
+              <template v-else>{{ r.val }}</template>
+            </div>
+            <div class="vv mute" v-else>—</div>
+          </div>
+        </div>
+      </template>
+
+      <!-- بخش‌های نام‌دار (درخواست‌دهنده/تحویل و...) -->
+      <template v-for="s in secSections" :key="s.name">
+        <div class="sec-kicker"><svg class="ic i14"><use :href="'#'+s.icon"/></svg> {{ s.name }}</div>
+        <div class="dlgrid">
+          <div class="vf" v-for="r in s.rows" :key="s.name+r.label" :class="{big: r.ftype==='textarea'}">
+            <div class="vl">{{ r.label }}</div>
+            <div class="vv prew" v-if="r.val">
+              <a v-if="r.dl" :href="r.dl" class="vfile"><svg class="ic i14"><use href="#i-download"/></svg>{{ r.val }}</a>
+              <template v-else>{{ r.val }}</template>
+            </div>
+            <div class="vv mute" v-else>—</div>
+          </div>
+        </div>
+      </template>
     </div>
 
     <div class="card">

@@ -6,7 +6,7 @@ import { faNum as fa } from './kit.js';
 const _v = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 const _e = t => String(t == null ? '' : t).replace(/[&<>"']/g,
   c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-export const PALETTE = ['#0d9488', '#0891b2', '#059669', '#d97706', '#0284c7', '#14b8a6', '#f59e0b', '#64748b', '#0f766e', '#2dd4bf', '#115e59', '#eab308', '#94a3b8'];
+export const PALETTE = ['#0d9488', '#6366f1', '#0ea5e9', '#f59e0b', '#f43f5e', '#8b5cf6', '#10b981', '#f97316', '#64748b', '#14b8a6', '#84cc16', '#eab308', '#06b6d4'];
 export const STATUS_C = { 'در حال انجام': '#d97706', 'بررسی شده': '#0284c7', 'انجام شده': '#059669' };
 if (typeof window !== 'undefined') window.STATUS_C = STATUS_C;
 
@@ -34,12 +34,13 @@ export function barSVG(data, uid) {
   const W = 660, H = 260, P = { t: 22, r: 14, b: 40, l: 36 };
   const ticks = niceTicks(Math.max(...data.map(d => d.value), 1));
   const max = ticks[ticks.length - 1];
+  const grid = _v('--line') || '#e8edf4', axis = _v('--ink-4') || '#d3dae4';
   const bw = (W - P.l - P.r) / Math.max(data.length, 1);
   const base = '#0f766e';
   let s = `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">`;
   ticks.forEach(v => {
     const y = P.t + (H - P.t - P.b) * (1 - v / max);
-    s += `<line x1="${P.l}" y1="${y}" x2="${W - P.r}" y2="${y}" stroke="#e8edf4" stroke-dasharray="3 5"${v === 0 ? ' stroke="#d3dae4" stroke-dasharray="none"' : ''}/>`;
+    s += `<line x1="${P.l}" y1="${y}" x2="${W - P.r}" y2="${y}" stroke="${grid}" stroke-dasharray="3 5"${v === 0 ? ` stroke="${axis}" stroke-dasharray="none"` : ''}/>`;
     if (v > 0) s += `<text x="${P.l - 7}" y="${y + 4}" font-size="10.5" fill="#9aa5b6" text-anchor="end">${fa(v)}</text>`;
   });
   data.forEach((d, i) => {
@@ -47,7 +48,7 @@ export function barSVG(data, uid) {
     const h = (H - P.t - P.b) * d.value / max, x = P.l + i * bw + bw * 0.16, y = H - P.b - h;
     s += `<defs><linearGradient id="g${uid}_${i}" x1="0" y1="0" x2="0" y2="1">
         <stop offset="0%" stop-color="${shade(c, .18)}"/><stop offset="100%" stop-color="${c}"/></linearGradient></defs>`;
-    s += `<rect x="${x}" y="${y}" width="${bw * 0.68}" height="${Math.max(h, d.value ? 3 : 0)}" rx="7" fill="url(#g${uid}_${i})" style="transition:opacity .15s" onmouseover="this.style.opacity=.82" onmouseout="this.style.opacity=1"><title>${_e(d.label)}: ${fa(d.value)}</title></rect>`;
+    s += `<rect x="${x}" y="${y}" width="${bw * 0.68}" height="${Math.max(h, d.value ? 3 : 0)}" rx="7" fill="url(#g${uid}_${i})" class="barpop" style="transition:opacity .15s" onmouseover="this.style.opacity=.82" onmouseout="this.style.opacity=1"><title>${_e(d.label)}: ${fa(d.value)}</title></rect>`;
     if (d.value) s += `<text x="${x + bw * 0.34}" y="${y - 6}" font-size="11.5" font-weight="bold" fill="${_v('--ink-2') || '#475569'}" text-anchor="middle">${fa(d.value)}</text>`;
     const lbl = _e(d.label.length > 11 ? d.label.slice(0, 11) + '…' : d.label);
     s += `<text x="${x + bw * 0.34}" y="${H - P.b + 17}" font-size="11.5" fill="${_v('--ink-3') || '#64748b'}" text-anchor="middle"><title>${_e(d.label)}</title>${lbl}</text>`;
@@ -69,8 +70,8 @@ export function hbarSVG(data, uid) {
     s += `<defs><linearGradient id="h${uid}_${i}" x1="1" y1="0" x2="0" y2="0">
         <stop offset="0%" stop-color="${shade(c, .25)}"/><stop offset="100%" stop-color="${c}"/></linearGradient></defs>`;
     s += `<text x="${W - 4}" y="${y + h / 2 + 4.5}" font-size="12.5" fill="${_v('--ink-2') || '#475569'}" text-anchor="start" direction="rtl">${_e(d.label)}</text>`;
-    s += `<rect x="${P.l}" y="${y}" width="${barMax}" height="${h}" rx="${h / 2}" fill="#f1f5f9"/>`;
-    s += `<rect x="${W - LBL - w}" y="${y}" width="${w}" height="${h}" rx="${h / 2}" fill="url(#h${uid}_${i})" style="transition:opacity .15s" onmouseover="this.style.opacity=.8" onmouseout="this.style.opacity=1"><title>${_e(d.label)}: ${fa(d.value)}</title></rect>`;
+    s += `<rect x="${P.l}" y="${y}" width="${barMax}" height="${h}" rx="${h / 2}" fill="${_v('--track') || '#eef2f7'}"/>`;
+    s += `<rect x="${W - LBL - w}" y="${y}" width="${w}" height="${h}" rx="${h / 2}" fill="url(#h${uid}_${i})" class="barpop" style="transition:opacity .15s" onmouseover="this.style.opacity=.8" onmouseout="this.style.opacity=1"><title>${_e(d.label)}: ${fa(d.value)}</title></rect>`;
     s += `<text x="${W - LBL - w - 9}" y="${y + h / 2 + 4.5}" font-size="12" font-weight="bold" fill="${_v('--ink-2') || '#475569'}" text-anchor="end">${fa(d.value)}</text>`;
   });
   if (!rows.length) s += `<text x="${W / 2}" y="${H / 2}" text-anchor="middle" fill="#94a3b8" font-size="13">داده‌ای نیست</text>`;
@@ -91,7 +92,7 @@ export function donutSVG(data, uid) {
         <stop offset="0%" stop-color="${shade(d.color, .3)}"/><stop offset="100%" stop-color="${d.color}"/></linearGradient></defs>`;
     let el;
     if (d.value === total) {
-      el = `<circle cx="${cx}" cy="${cy}" r="${(R + r) / 2}" fill="none" stroke="url(#d${uid}_${i})" stroke-width="${R - r}"><title>${_e(d.label)}</title></circle>`;
+      el = `<circle cx="${cx}" cy="${cy}" r="${(R + r) / 2}" fill="none" stroke="url(#d${uid}_${i})" stroke-width="${R - r}" stroke-linecap="round"><title>${_e(d.label)}</title></circle>`;
     } else {
       el = `<path d="M ${x1} ${y1} A ${R} ${R} 0 ${large} 1 ${x2} ${y2} L ${x3} ${y3} A ${r} ${r} 0 ${large} 0 ${x4} ${y4} Z" fill="url(#d${uid}_${i})" stroke="#fff" stroke-width="3" style="transition:transform .18s,opacity .18s;transform-box:fill-box;transform-origin:center;cursor:${d.href ? 'pointer' : 'default'}" onmouseover="this.style.transform='scale(1.045)'" onmouseout="this.style.transform='none'"><title>${_e(d.label)}: ${fa(d.value)} (${fa(Math.round(d.value / total * 100))}٪)</title></path>`;
     }
@@ -109,7 +110,8 @@ export function lineSVG(data, uid) {
   const max = ticks[ticks.length - 1];
   const n = data.length || 1, sx = (W - P.l - P.r) / Math.max(n - 1, 1), plotH = H - P.t - P.b;
   const many = n > 14;
-  const i3 = _v('--ink-3') || '#64748b', i4 = _v('--ink-4') || '#94a3b8',
+  const grid = _v('--line') || '#e8edf4', axis = _v('--ink-4') || '#d3dae4',
+        i3 = _v('--ink-3') || '#64748b', i4 = _v('--ink-4') || '#94a3b8',
         panel = _v('--panel') || '#fff', ink1 = _v('--ink-1') || '#1e293b';
   let s = `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">`;
   s += `<defs><linearGradient id="la${uid}" x1="0" y1="0" x2="0" y2="1">
@@ -118,7 +120,7 @@ export function lineSVG(data, uid) {
       <stop offset="0%" stop-color="#0891b2"/><stop offset="100%" stop-color="#0d9488"/></linearGradient></defs>`;
   ticks.forEach(v => {
     const y = P.t + plotH * (1 - v / max);
-    s += `<line x1="${P.l}" y1="${y}" x2="${W - P.r}" y2="${y}" stroke="#e8edf4" stroke-dasharray="3 5"${v === 0 ? ' stroke="#d3dae4" stroke-dasharray="none"' : ''}/>`;
+    s += `<line x1="${P.l}" y1="${y}" x2="${W - P.r}" y2="${y}" stroke="${grid}" stroke-dasharray="3 5"${v === 0 ? ` stroke="${axis}" stroke-dasharray="none"` : ''}/>`;
     if (v > 0) s += `<text x="${P.l - 8}" y="${y + 4}" font-size="10.5" fill="#9aa5b6" text-anchor="end">${fa(v)}</text>`;
   });
   const pts = data.map((d, i) => [W - P.r - i * sx, H - P.b - plotH * d.value / max]);
@@ -167,7 +169,7 @@ export function lineSVG(data, uid) {
   });
   s += `<line class="xh" x1="-10" x2="-10" y1="${P.t - 2}" y2="${H - P.b}" stroke="rgba(13,148,136,.5)" stroke-width="1.2" stroke-dasharray="3 4" opacity="0"/>`;
   s += `<g class="tt" opacity="0" style="pointer-events:none">
-      <rect class="tt-b" rx="9" ry="9" fill="${panel}" stroke="#d3dae4" stroke-width="1"/>
+      <rect class="tt-b" rx="9" ry="9" fill="${panel}" stroke="${_v('--ink-4') || '#d3dae4'}" stroke-width="1"/>
       <text class="tt-1" text-anchor="middle" font-size="12.5" font-weight="800" fill="${ink1}"></text>
       <text class="tt-2" text-anchor="middle" font-size="11.5" font-weight="700" fill="#0d9488"></text></g>`;
   return s + '</svg>';
