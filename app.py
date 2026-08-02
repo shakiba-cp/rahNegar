@@ -193,6 +193,29 @@ app = Flask(__name__)
 # نسخه دارایی‌های استاتیک برای شکستن کش مرورگر بعد از هر آپدیت (cache-busting)
 ASSET_V = "6.0.0"
 app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
+# تقویت امنیت کوکی نشست — Secure را هنگام HTTPS با متغیر محیطی SECURE_COOKIE=1 فعال کنید
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+# انقضای نشست: ۸ ساعت عدم فعالیت → خروج خودکار (با هر درخواست تمدید می‌شود)
+app.config["PERMANENT_SESSION_LIFETIME"] = datetime.timedelta(hours=8)
+if os.environ.get("SECURE_COOKIE") == "1":
+    app.config["SESSION_COOKIE_SECURE"] = True
+
+
+@app.after_request
+def _security_headers(resp):
+    """هدرهای تقویتی امنیت وب (clickjacking/sniffing/لو رفتن referrer)"""
+    h = resp.headers
+    h.setdefault("X-Frame-Options", "DENY")
+    h.setdefault("X-Content-Type-Options", "nosniff")
+    h.setdefault("Referrer-Policy", "same-origin")
+    h.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+    h.setdefault("Content-Security-Policy",
+                 "default-src 'self'; img-src 'self' data:; "
+                 "style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; "
+                 "font-src 'self'; connect-src 'self'; form-action 'self'; "
+                 "frame-ancestors 'none'; base-uri 'self'")
+    return resp
 # قالب‌های جینجا هنگام تغییر فایل، خودکار بازخوانی شوند (بدون نیاز به ری‌استارت)
 app.config["TEMPLATES_AUTO_RELOAD"] = True
 
@@ -441,19 +464,34 @@ def perm_required(col):
     return deco
 
 
+_login_attempts = {}   # ip+username → [تعداد ناموفق، زمان اولین تلاش]
+_LOGIN_MAX_FAILS, _LOGIN_LOCK_SEC = 5, 300
+
+
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if current_user():
         return redirect(url_for("dashboard"))
     if request.method == "POST":
+        import time as _t
         u = request.form.get("username", "").strip()
         p = request.form.get("password", "")
+        key = f"{request.remote_addr}|{u.lower()}"
+        fails, first = _login_attempts.get(key, [0, 0.0])
         row = get_db().execute("SELECT * FROM users WHERE username=? AND is_active=1",
                                (u,)).fetchone()
         if row and check_password_hash(row["password_hash"], p):
+            _login_attempts.pop(key, None)
             session.clear()
+            session.permanent = True
             session["uid"] = row["id"]
             return redirect(request.args.get("next") or url_for("dashboard"))
+        if fails >= _LOGIN_MAX_FAILS and _t.time() - first < _LOGIN_LOCK_SEC:
+            flash("به دلیل تلاش‌های متوالی ناموفق، ورود برای چند دقیقه قفل شده است. "
+                  "کمی بعد دوباره تلاش کنید.", "error")
+            return render_template("login.html", sys_name=get_setting("system_name")), 429
+        _login_attempts[key] = ([fails + 1, first or _t.time()] if _t.time() - first < _LOGIN_LOCK_SEC
+                                else [1, _t.time()])
         flash("نام کاربری یا رمز عبور اشتباه است.", "error")
     return render_template("login.html", sys_name=get_setting("system_name"))
 
@@ -589,7 +627,8 @@ def _sync_meta(activity_id):
         date_iso = date_fallback
     if not title:
         for r in rows:
-            if (r["value"] or "").strip() and r["field_type"] in ("text", "textarea"):
+            if (r["value"] or "").strip() and r["field_type"] in ("text", "textarea") \
+                    and (r["field_key"] or "") not in ("expert", "ticket"):
                 title = (r["value"] or "").strip().split("\n")[0][:120]
                 break
     db.execute("UPDATE activities SET title=?, ticket=?, date=? WHERE id=?",
@@ -655,7 +694,7 @@ def query_activities(where, params, limit=None, offset=0):
              FROM activities a
              JOIN domains d ON d.id=a.domain_id
              JOIN users u ON u.id=a.user_id
-             WHERE {where} ORDER BY a.created_at DESC, a.id DESC"""
+             WHERE {where} ORDER BY a.date IS NULL, a.date DESC, a.id DESC"""
     if limit:
         sql += " LIMIT ? OFFSET ?"
         params = params + [limit, offset]
@@ -1174,6 +1213,31 @@ def activity_edit(activity_id):
                         else STATUSES)))
 
 
+@app.route("/activities/bulk-delete", methods=["POST"])
+@perm_required("can_delete")
+def activities_bulk_delete():
+    """حذف گروهی فعالیت‌ها — بدنه: {"ids": [..]}"""
+    ids = request.get_json(silent=True) or {}
+    ids = ids.get("ids") or []
+    ids = [int(x) for x in ids if str(x).isdigit()][:500]
+    db = get_db()
+    n = 0
+    for aid in ids:
+        row = db.execute("SELECT id FROM activities WHERE id=?", (aid,)).fetchone()
+        if not row:
+            continue
+        for t in db.execute("SELECT stored_name FROM attachments WHERE activity_id=?",
+                            (aid,)):
+            path = os.path.join(UPLOAD_DIR, t["stored_name"])
+            if os.path.exists(path):
+                os.remove(path)
+        db.execute("DELETE FROM responses WHERE activity_id=?", (aid,))
+        db.execute("DELETE FROM activities WHERE id=?", (aid,))
+        n += 1
+    db.commit()
+    return jsonify({"ok": True, "deleted": n})
+
+
 @app.route("/activities/<int:activity_id>/delete", methods=["POST"])
 @perm_required("can_delete")
 def activity_delete(activity_id):
@@ -1574,7 +1638,7 @@ def _process_excel(domain, data, filename, dup_mode="ask"):
     errors, success, warns, owner_fix = [], 0, [], 0
     total = max(0, len(rows) - 1)
     fids_sorted = sorted(f["id"] for f in fields)
-    have_sigs, seen_sigs, sig_map = set(), set(), {}
+    have_sigs, seen_sigs, seen_raw, sig_map = set(), set(), set(), {}
     if dup_mode != "force":
         sig_map = _domain_sig_map(db, domain["id"], fids_sorted)
         have_sigs = set(sig_map)
@@ -1616,8 +1680,9 @@ def _process_excel(domain, data, filename, dup_mode="ask"):
                 row_err.append(f"ستون «{fld['label']}» خالی یا نامعتبر است")
         if not record and not row_err:
             row_err.append("هیچ مقدار معتبری در ستون‌های این حوزه یافت نشد")
-        if not record:
-            # ردیف «روح»: هیچ مقدار معتبری ندارد — هرگز ثبت نمی‌شود
+        if not record or (expert_fid is not None and
+                          all(fid == expert_fid or not val for fid, val in record.items())):
+            # ردیف «روح»: هیچ دادهٔ واقعی (غیر از نام کارشناس) ندارد — ثبت نمی‌شود
             if row_err:
                 errors.append(f"ردیف {jalali.fa(idx)}: " + "؛ ".join(row_err))
             continue
@@ -1643,9 +1708,13 @@ def _process_excel(domain, data, filename, dup_mode="ask"):
                 else:
                     warns.append(f"ردیف {jalali.fa(idx)}: کارشناس «{ev}» در فهرست کاربران "
                                  f"سامانه یافت نشد — فعالیت به نام شما ثبت شد")
-        # --- تشخیص ردیف تکراری: همهٔ ستون‌ها مشابه یک فعالیت موجود یا تکرار در خود فایل
+        # --- تشخیص ردیف تکراری:
+        #     • درون فایل: کل سطر خام باید دقیقاً مثل سطر قبلی باشد
+        #     • با دیتابیس: مقادیر ستون‌های نگاشت‌شده مشابه یک فعالیت موجود باشد
         sig = _excel_sig(record, fids_sorted)
-        if dup_mode != "force" and (sig in seen_sigs or sig in have_sigs):
+        raw_sig = "".join(_cell_text(c).strip() for c in r)
+        if dup_mode != "force" and (sig in have_sigs or raw_sig in seen_raw):
+            seen_raw.add(raw_sig)
             seen_sigs.add(sig)
             dups.append(idx)
             # اصلاح کارشناس فعالیتِ قبلاً ثبت‌شده وقتی فایل نام کارشناس را دارد
@@ -1657,6 +1726,7 @@ def _process_excel(domain, data, filename, dup_mode="ask"):
                                    (owner_id, now_iso(), aid))
                         owner_fix += 1
             continue
+        seen_raw.add(raw_sig)
         seen_sigs.add(sig)
         parsed.append((record, status, owner_id, flag))
     if dup_mode == "ask" and dups:

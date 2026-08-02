@@ -262,6 +262,7 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--pri);vertical-ali
 /* فیلتر بار */
 .filters-card{position:relative}
 .filters{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}
+.filters .f.full{flex:1 1 100%}
 .filters .f{min-width:150px;flex:1}
 .filters .f.sm{flex:0 0 auto;min-width:106px}
 .filters .f:has(.date-trip){min-width:214px;flex:1.4}

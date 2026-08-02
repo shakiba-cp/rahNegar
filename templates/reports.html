@@ -64,9 +64,9 @@
     <span class="cnt-badge"><svg class="ic"><use href="#i-doc"/></svg><b class="onum">{{ total|fa }}</b> فعالیت یافت شد{% if g.user['role']!='admin' %} (فعالیت‌های شما){% endif %}</span>
     <div class="btn-row no-print">
       {% if g.user['role']!='admin' or not export_headers %}
-      <a class="btn ghost" href="{{ url_for('reports', export='excel', **request.args) }}"><svg class="ic"><use href="#i-download"/></svg> خروجی Excel</a>
-      <a class="btn ghost" href="{{ url_for('reports', export='csv', **request.args) }}"><svg class="ic"><use href="#i-file"/></svg> خروجی CSV</a>
-      <a class="btn ghost" href="{{ url_for('reports', export='pdf', **request.args) }}"><svg class="ic"><use href="#i-printer"/></svg> خروجی PDF</a>
+      <a class="btn ghost" href="{{ url_for('reports', **dict(request.args, export='excel')) }}"><svg class="ic"><use href="#i-download"/></svg> خروجی Excel</a>
+      <a class="btn ghost" href="{{ url_for('reports', **dict(request.args, export='csv')) }}"><svg class="ic"><use href="#i-file"/></svg> خروجی CSV</a>
+      <a class="btn ghost" href="{{ url_for('reports', **dict(request.args, export='pdf')) }}"><svg class="ic"><use href="#i-printer"/></svg> خروجی PDF</a>
       {% else %}
       <span class="mute">خروجی: از کارت «ستون‌های خروجی» بالا</span>
       {% endif %}

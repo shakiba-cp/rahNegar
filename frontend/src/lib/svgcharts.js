@@ -4,6 +4,8 @@
 import { faNum as fa } from './kit.js';
 
 const _v = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const _e = t => String(t == null ? '' : t).replace(/[&<>"']/g,
+  c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 export const PALETTE = ['#0d9488', '#0891b2', '#059669', '#d97706', '#0284c7', '#14b8a6', '#f59e0b', '#64748b', '#0f766e', '#2dd4bf', '#115e59', '#eab308', '#94a3b8'];
 export const STATUS_C = { 'در حال انجام': '#d97706', 'بررسی شده': '#0284c7', 'انجام شده': '#059669' };
 if (typeof window !== 'undefined') window.STATUS_C = STATUS_C;
@@ -45,10 +47,10 @@ export function barSVG(data, uid) {
     const h = (H - P.t - P.b) * d.value / max, x = P.l + i * bw + bw * 0.16, y = H - P.b - h;
     s += `<defs><linearGradient id="g${uid}_${i}" x1="0" y1="0" x2="0" y2="1">
         <stop offset="0%" stop-color="${shade(c, .18)}"/><stop offset="100%" stop-color="${c}"/></linearGradient></defs>`;
-    s += `<rect x="${x}" y="${y}" width="${bw * 0.68}" height="${Math.max(h, d.value ? 3 : 0)}" rx="7" fill="url(#g${uid}_${i})" style="transition:opacity .15s" onmouseover="this.style.opacity=.82" onmouseout="this.style.opacity=1"><title>${d.label}: ${fa(d.value)}</title></rect>`;
+    s += `<rect x="${x}" y="${y}" width="${bw * 0.68}" height="${Math.max(h, d.value ? 3 : 0)}" rx="7" fill="url(#g${uid}_${i})" style="transition:opacity .15s" onmouseover="this.style.opacity=.82" onmouseout="this.style.opacity=1"><title>${_e(d.label)}: ${fa(d.value)}</title></rect>`;
     if (d.value) s += `<text x="${x + bw * 0.34}" y="${y - 6}" font-size="11.5" font-weight="bold" fill="${_v('--ink-2') || '#475569'}" text-anchor="middle">${fa(d.value)}</text>`;
-    const lbl = d.label.length > 11 ? d.label.slice(0, 11) + '…' : d.label;
-    s += `<text x="${x + bw * 0.34}" y="${H - P.b + 17}" font-size="11.5" fill="${_v('--ink-3') || '#64748b'}" text-anchor="middle"><title>${d.label}</title>${lbl}</text>`;
+    const lbl = _e(d.label.length > 11 ? d.label.slice(0, 11) + '…' : d.label);
+    s += `<text x="${x + bw * 0.34}" y="${H - P.b + 17}" font-size="11.5" fill="${_v('--ink-3') || '#64748b'}" text-anchor="middle"><title>${_e(d.label)}</title>${lbl}</text>`;
   });
   return s + '</svg>';
 }
@@ -66,9 +68,9 @@ export function hbarSVG(data, uid) {
     const w = Math.max(barMax * d.value / max, d.value ? 6 : 0);
     s += `<defs><linearGradient id="h${uid}_${i}" x1="1" y1="0" x2="0" y2="0">
         <stop offset="0%" stop-color="${shade(c, .25)}"/><stop offset="100%" stop-color="${c}"/></linearGradient></defs>`;
-    s += `<text x="${W - 4}" y="${y + h / 2 + 4.5}" font-size="12.5" fill="${_v('--ink-2') || '#475569'}" text-anchor="start" direction="rtl">${d.label}</text>`;
+    s += `<text x="${W - 4}" y="${y + h / 2 + 4.5}" font-size="12.5" fill="${_v('--ink-2') || '#475569'}" text-anchor="start" direction="rtl">${_e(d.label)}</text>`;
     s += `<rect x="${P.l}" y="${y}" width="${barMax}" height="${h}" rx="${h / 2}" fill="#f1f5f9"/>`;
-    s += `<rect x="${W - LBL - w}" y="${y}" width="${w}" height="${h}" rx="${h / 2}" fill="url(#h${uid}_${i})" style="transition:opacity .15s" onmouseover="this.style.opacity=.8" onmouseout="this.style.opacity=1"><title>${d.label}: ${fa(d.value)}</title></rect>`;
+    s += `<rect x="${W - LBL - w}" y="${y}" width="${w}" height="${h}" rx="${h / 2}" fill="url(#h${uid}_${i})" style="transition:opacity .15s" onmouseover="this.style.opacity=.8" onmouseout="this.style.opacity=1"><title>${_e(d.label)}: ${fa(d.value)}</title></rect>`;
     s += `<text x="${W - LBL - w - 9}" y="${y + h / 2 + 4.5}" font-size="12" font-weight="bold" fill="${_v('--ink-2') || '#475569'}" text-anchor="end">${fa(d.value)}</text>`;
   });
   if (!rows.length) s += `<text x="${W / 2}" y="${H / 2}" text-anchor="middle" fill="#94a3b8" font-size="13">داده‌ای نیست</text>`;
@@ -89,9 +91,9 @@ export function donutSVG(data, uid) {
         <stop offset="0%" stop-color="${shade(d.color, .3)}"/><stop offset="100%" stop-color="${d.color}"/></linearGradient></defs>`;
     let el;
     if (d.value === total) {
-      el = `<circle cx="${cx}" cy="${cy}" r="${(R + r) / 2}" fill="none" stroke="url(#d${uid}_${i})" stroke-width="${R - r}"><title>${d.label}</title></circle>`;
+      el = `<circle cx="${cx}" cy="${cy}" r="${(R + r) / 2}" fill="none" stroke="url(#d${uid}_${i})" stroke-width="${R - r}"><title>${_e(d.label)}</title></circle>`;
     } else {
-      el = `<path d="M ${x1} ${y1} A ${R} ${R} 0 ${large} 1 ${x2} ${y2} L ${x3} ${y3} A ${r} ${r} 0 ${large} 0 ${x4} ${y4} Z" fill="url(#d${uid}_${i})" stroke="#fff" stroke-width="3" style="transition:transform .18s,opacity .18s;transform-box:fill-box;transform-origin:center;cursor:${d.href ? 'pointer' : 'default'}" onmouseover="this.style.transform='scale(1.045)'" onmouseout="this.style.transform='none'"><title>${d.label}: ${fa(d.value)} (${fa(Math.round(d.value / total * 100))}٪)</title></path>`;
+      el = `<path d="M ${x1} ${y1} A ${R} ${R} 0 ${large} 1 ${x2} ${y2} L ${x3} ${y3} A ${r} ${r} 0 ${large} 0 ${x4} ${y4} Z" fill="url(#d${uid}_${i})" stroke="#fff" stroke-width="3" style="transition:transform .18s,opacity .18s;transform-box:fill-box;transform-origin:center;cursor:${d.href ? 'pointer' : 'default'}" onmouseover="this.style.transform='scale(1.045)'" onmouseout="this.style.transform='none'"><title>${_e(d.label)}: ${fa(d.value)} (${fa(Math.round(d.value / total * 100))}٪)</title></path>`;
     }
     s += d.href ? `<a href="${d.href}">${el}</a>` : el;
     ang = a2;
@@ -144,7 +146,7 @@ export function lineSVG(data, uid) {
     const dot = `<circle class="pt-hit" cx="${p[0]}" cy="${p[1]}" r="15" fill="rgba(0,0,0,0)"/>
       <circle class="pt-ring" cx="${p[0]}" cy="${p[1]}" r="8" fill="none" stroke="rgba(13,148,136,.55)" stroke-width="1.5" opacity="0"/>
       <circle class="pt-core" cx="${p[0]}" cy="${p[1]}" r="4" fill="${isMin ? panel : panel}" stroke="${isMin ? '#94a3b8' : '#0d9488'}" stroke-width="2.6"${isMin ? ' stroke-dasharray="2 2"' : ''}/>
-      <title>${data[i].label}: ${fa(data[i].value)} فعالیت</title>`;
+      <title>${_e(data[i].label)}: ${fa(data[i].value)} فعالیت</title>`;
     s += data[i].href
       ? `<a href="${data[i].href}"><g class="pt" data-x="${p[0]}" data-y="${p[1]}"
           data-l="${String(data[i].label).replace(/"/g, '')}" data-v="${data[i].value}">${dot}</g></a>`

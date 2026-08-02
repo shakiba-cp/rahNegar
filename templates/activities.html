@@ -9,8 +9,8 @@
 <div class="card filters-card" id="flt-app" v-cloak>
   <div class="flb mb-4">
     <div class="btn-row no-print">
-      <a class="btn ghost" href="{{ url_for('activities', export='excel', **request.args) }}"><svg class="ic"><use href="#i-download"/></svg> خروجی Excel</a>
-      <a class="btn ghost" href="{{ url_for('activities', export='pdf', **request.args) }}"><svg class="ic"><use href="#i-printer"/></svg> خروجی PDF</a>
+      <a class="btn ghost" href="{{ url_for('activities', **dict(request.args, export='excel')) }}"><svg class="ic"><use href="#i-download"/></svg> خروجی Excel</a>
+      <a class="btn ghost" href="{{ url_for('activities', **dict(request.args, export='pdf')) }}"><svg class="ic"><use href="#i-printer"/></svg> خروجی PDF</a>
     </div>
     <button type="button" class="btn ghost sm flt-tgl" onclick="var c=this.closest('#flt-app');c.classList.toggle('collapsed')"><svg class="ic"><use href="#i-filter"/></svg><span>پنهان فیلترها</span></button>
   </div>
@@ -53,8 +53,8 @@
   'statuses': statuses,
   'users': flt_users,
   'args': request.args.to_dict(),
-  'urls': {'base': url_for('activities'), 'excel': url_for('activities', export='excel', **request.args),
-           'pdf': url_for('activities', export='pdf', **request.args), 'clear': url_for('activities')}
+  'urls': {'base': url_for('activities'), 'excel': url_for('activities', **dict(request.args, export='excel')),
+           'pdf': url_for('activities', **dict(request.args, export='pdf')), 'clear': url_for('activities')}
 }|tojson_script }}</script>
 
 <div class="card">

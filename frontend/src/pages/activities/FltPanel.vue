@@ -4,6 +4,7 @@
    داده‌های حوزه/وضعیت/کارشناس و مقادیر فعلی از جزیره JSON «flt-data» می‌آیند. */
 import { readJson } from '@/lib/kit.js';
 import TripSelects from '@/components/ui/TripSelects.vue';
+import { todayJ, g2jjs, j2gjs, jDim } from '@/lib/jalali.js';
 
 export default {
   name: 'FltPanel',
@@ -15,6 +16,8 @@ export default {
     dom: '',
     st: '',
     exp: '',
+    fp: { y: '', m: '', d: '' },
+    tp: { y: '', m: '', d: '' },
     col: window.innerWidth < 1240 && (function () { try { return localStorage.getItem('flt') === '1'; } catch (e) { return false; } })()
   }),
   computed: {
@@ -23,8 +26,9 @@ export default {
     statuses() { return this.p.statuses || []; },
     users() { return this.p.users || []; },
     args() { return this.p.args || {}; },
-    fromParts() { return { y: this.args.from__y || '', m: this.args.from__m || '', d: this.args.from__d || '' }; },
-    toParts() { return { y: this.args.to__y || '', m: this.args.to__m || '', d: this.args.to__d || '' }; },
+    fromParts() { return this.fp; },
+    toParts() { return this.tp; },
+    hasRange() { return !!(this.fp.y || this.tp.y); },
     advOpen() { return !!(this.args.ticket || this.args.from__y || this.args.to__y); }
   },
   created() {
@@ -33,6 +37,8 @@ export default {
     this.dom = a.domain != null ? String(a.domain) : '';
     this.st = a.status || '';
     this.exp = a.expert != null ? String(a.expert) : '';
+    this.fp = { y: a.from__y || '', m: a.from__m || '', d: a.from__d || '' };
+    this.tp = { y: a.to__y || '', m: a.to__m || '', d: a.to__d || '' };
   },
   watch: {
     col: {
@@ -47,6 +53,28 @@ export default {
     }
   },
   methods: {
+    qr(kind) {
+      /* بازه‌های سریع تاریخ — ست کردن سه‌تکه‌ها و ارسال فرم */
+      const [jy, jm] = [todayJ()[0], todayJ()[1]];
+      const g0 = j2gjs(...todayJ());
+      const t0 = new Date(g0.gy, g0.gm - 1, g0.gd), D = 864e5;
+      const J = ms => { const x = new Date(ms); return g2jjs(x.getFullYear(), x.getMonth() + 1, x.getDate()); };
+      let from, to;
+      if (kind === '7')       { from = J(t0 - 6 * D);  to = J(t0); }
+      else if (kind === '30') { from = J(t0 - 29 * D); to = J(t0); }
+      else if (kind === 'm')  { from = [jy, jm, 1];    to = J(t0); }
+      else { const pmy = jm === 1 ? jy - 1 : jy, pmm = jm === 1 ? 12 : jm - 1;
+             from = [pmy, pmm, 1]; to = [pmy, pmm, jDim(pmy, pmm)]; }
+      this.fp = { y: String(from[0]), m: String(from[1]), d: String(from[2]) };
+      this.tp = { y: String(to[0]),   m: String(to[1]),   d: String(to[2]) };
+      this.$nextTick(() => this.$el.querySelector('form.filters').submit());
+    },
+    cr() {
+      const qs = new URLSearchParams(window.location.search);
+      ['from__y','from__m','from__d','to__y','to__m','to__d'].forEach(k => qs.delete(k));
+      const tail = qs.toString();
+      window.location.href = (this.p.urls && this.p.urls.base || '/') + (tail ? '?' + tail : '');
+    },
     toggle() {
       this.col = !this.col;
       try { localStorage.setItem('flt', this.col ? '1' : '0'); } catch (e) {}
@@ -85,8 +113,16 @@ export default {
       <details class="adv full" :open="advOpen">
         <summary><svg class="ic"><use href="#i-sliders"/></svg> فیلترهای پیشرفته (تاریخ و تیکت)</summary>
         <div class="adv-body">
-          <div class="f"><label>از تاریخ</label><TripSelects base="from_" :parts="fromParts"/></div>
-          <div class="f"><label>تا تاریخ</label><TripSelects base="to_" :parts="toParts"/></div>
+          <div class="f full"><label>بازه‌های سریع</label>
+            <div class="rng">
+              <button type="button" class="rc" @click="qr('7')">۷ روز اخیر</button>
+              <button type="button" class="rc" @click="qr('30')">۳۰ روز اخیر</button>
+              <button type="button" class="rc" @click="qr('m')">این ماه</button>
+              <button type="button" class="rc" @click="qr('pm')">ماه قبل</button>
+              <button type="button" class="rc" v-if="hasRange" @click="cr">پاک‌سازی بازه</button>
+            </div></div>
+          <div class="f"><label>از تاریخ</label><TripSelects base="from" :parts="fromParts"/></div>
+          <div class="f"><label>تا تاریخ</label><TripSelects base="to" :parts="toParts"/></div>
           <div class="f sm"><label>شماره تیکت</label><input type="text" name="ticket" v-model="tk" placeholder="مثلأ‌ 4321"></div>
           <div class="f sm"><label>&nbsp;</label><button class="btn pri sm" type="submit"><svg class="ic"><use href="#i-check"/></svg> اعمال</button></div>
         </div>
