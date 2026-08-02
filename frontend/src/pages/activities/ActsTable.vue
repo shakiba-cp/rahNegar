@@ -27,7 +27,13 @@ export default {
     return {
       rows: payload.rows,
       isAdmin: !!payload.admin,
+      statuses: payload.statuses || [],
+      canDel: !!payload.can_delete || !!payload.admin,
+      bStatus: '',
+      busySt: false,
       q: '',
+      onlyFix: false,
+      busyDel: false,
       sortKey: '',
       sortDir: 1,
       sel: [],
@@ -48,10 +54,12 @@ export default {
     colSpan() { return 3 + this.cols.length + (this.show.atts ? 1 : 0) + 1; },
     filtered() {
       let r = this.rows;
+      if (this.onlyFix) r = r.filter(x => x.flagged);
       const q = this.q.trim();
       if (q) r = r.filter(x => (x.title + ' ' + x.domain + ' ' + x.expert + ' ' + x.ticket + ' ' + x.date).includes(q));
       return this.kSort(r);
     },
+    fixCount() { return this.rows.filter(x => x.flagged).length; },
     pages() { return Math.max(1, Math.ceil(this.filtered.length / PER)); },
     curPage() { return Math.min(this.page, this.pages); },
     paged() { return this.filtered.slice((this.curPage - 1) * PER, this.curPage * PER); },
@@ -69,7 +77,8 @@ export default {
     }
   },
   watch: {
-    q() { this.page = 1; }
+    q() { this.page = 1; },
+    onlyFix() { this.page = 1; }
   },
   methods: {
     fa, stClass: statusClass,
@@ -85,6 +94,30 @@ export default {
       this.sel = e.target.checked ? [...new Set(this.sel.concat(ids))] : this.sel.filter(id => !ids.includes(id));
     },
     clearSel() { this.sel = []; },
+    bulkStatus() {
+      if (!this.bStatus || this.busySt || !this.sel.length) return;
+      this.busySt = true;
+      fetch('/activities/bulk-status', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({ ids: this.sel, status: this.bStatus })
+      }).then(r => r.ok ? r.json() : Promise.reject(r))
+        .then(() => { window.location.reload(); })
+        .catch(() => { this.busySt = false; window.alert('تغییر وضعیت انجام نشد؛ دوباره تلاش کن.'); });
+    },
+    bulkDelete() {
+      const n = this.sel.length;
+      if (!n || this.busyDel) return;
+      if (!window.confirm(`${this.fa(n)} فعالیت برای همیشه حذف می‌شوند. مطمئنی؟`)) return;
+      this.busyDel = true;
+      fetch('/activities/bulk-delete', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({ ids: this.sel })
+      }).then(r => r.ok ? r.json() : Promise.reject(r))
+        .then(() => { window.location.reload(); })
+        .catch(() => { this.busyDel = false; window.alert('حذف انجام نشد؛ دوباره تلاش کن.'); });
+    },
     exportCsv() {
       const rows = this.rows.filter(x => this.sel.includes(x.id));
       downloadCsv('activities-selected.csv',
@@ -109,6 +142,10 @@ export default {
         <input v-model="q" type="text" placeholder="جستجو در عنوان، تیکت، کارشناس...">
       </div>
       <span class="mute fs11" v-if="q">{{ fa(filtered.length) }} نتیجه</span>
+      <button type="button" class="chip" :class="{on: onlyFix}" v-if="fixCount"
+              @click="onlyFix = !onlyFix" :title="'نمایش فقط ' + fa(fixCount) + ' فعالیتِ نیازمند اصلاح'">
+        <svg class="ic i13"><use href="#i-alert"/></svg> نیازمند اصلاح ({{ fa(fixCount) }})
+      </button>
       <button type="button" class="btn ghost icon sm" id="eye-status"
               :title="show.status ? 'پنهان‌کردن ستون وضعیت' : 'نمایش ستون وضعیت'"
               @click="toggleCol('status')">
@@ -125,7 +162,15 @@ export default {
     </div>
     <div class="selbar no-print" :class="{on: selCount>0}">
       <span><b class="onum">{{ fa(selCount) }}</b> فعالیت انتخاب شد</span>
-      <button type="button" class="btn pri sm" @click="exportCsv"><svg class="ic"><use href="#i-file"/></svg> خروجی CSV انتخاب‌شده‌ها</button>
+      <button type="button" class="btn ghost sm" @click="exportCsv"><svg class="ic"><use href="#i-file"/></svg> خروجی CSV انتخاب‌شده‌ها</button>
+      <span class="bstat" v-if="statuses.length">
+        <select class="crs" v-model="bStatus" title="وضعیت جدید برای مورد انتخاب‌شده‌ها">
+          <option value="" disabled selected>تغییر وضعیت به…</option>
+          <option v-for="s in statuses" :key="s" :value="s">{{ s }}</option>
+        </select>
+        <button type="button" class="btn pri sm" id="btn-bulk-status" :disabled="!bStatus || busySt" @click="bulkStatus"><svg class="ic"><use href="#i-check"/></svg> اعمال وضعیت</button>
+      </span>
+      <button type="button" class="btn danger sm" v-if="canDel" :disabled="busyDel" @click="bulkDelete"><svg class="ic"><use href="#i-trash"/></svg> حذف انتخاب‌شده‌ها</button>
       <button type="button" class="btn ghost sm" @click="clearSel">لغو انتخاب</button>
     </div>
     <div class="tbl-wrap"><table>

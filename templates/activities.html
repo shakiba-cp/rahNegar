@@ -61,7 +61,7 @@
   <div class="mute mb-3"><b class="ink1 onum">{{ total|fa }}</b> فعالیت یافت شد</div>
   {% if acts %}
   <div id="acts-app" v-cloak></div>
-  <script type="application/json" id="acts-data">{{ {'rows': acts_json, 'admin': g.user['role']=='admin'}|tojson_script }}</script>
+  <script type="application/json" id="acts-data">{{ {'rows': acts_json, 'admin': g.user['role']=='admin', 'statuses': bulk_statuses, 'can_delete': perms.delete}|tojson_script }}</script>
   {% else %}
   <div class="empty"><div class="eic"><svg class="ic i88"><use href="#i-empty"/></svg></div>
     <div class="fw7 ink2">فعالیتی یافت نشد.</div>

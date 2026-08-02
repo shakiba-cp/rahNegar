@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """تست خودکار جریان‌های اصلی سامانه با client داخلی Flask."""
 import io
+import json
 import sys
 
 from openpyxl import Workbook, load_workbook
@@ -139,8 +140,12 @@ check("پیام نتیجه Excel", "فعالیت ثبت شد".encode() in r.data
       and "ردیف دارای خطا".encode() in r.data, r.data[:200])
 with A.app.app_context():
     imp = A.get_db().execute("SELECT * FROM excel_imports ORDER BY id DESC").fetchone()
-check("لاگ import: ۲ موفق ۱ خطا", imp["success_rows"] == 2 and imp["error_rows"] == 1,
+check("لاگ import: هر ۳ ردیف وارد شد، ۱ ردیف ناقص (پرچم‌دار)",
+      imp["success_rows"] == 3 and imp["error_rows"] == 1,
       (imp["success_rows"], imp["error_rows"]))
+with A.app.app_context():
+    _fl = A.get_db().execute("SELECT COUNT(*) c FROM activities WHERE flagged=1").fetchone()["c"]
+check("ردیف ناقص با پرچم «نیازمند اصلاح» ثبت شد", _fl == 1, (_fl,))
 r = c.get(f"/import/{imp['id']}")
 check("صفحه نتیجه import", "تعداد کل ردیف‌ها".encode() in r.data)
 
@@ -161,8 +166,8 @@ with A.app.app_context():
     _d = A.get_db()
     _imp2 = _d.execute("SELECT * FROM excel_imports ORDER BY id DESC").fetchone()
     _n2 = _d.execute("SELECT COUNT(*) AS c FROM activities").fetchone()["c"]
-check("تأیید skip: هر دو ردیف تکراری رد شدند و چیز جدیدی ثبت نشد",
-      _n2 == _n0 and _imp2["dup_rows"] == 2 and _imp2["success_rows"] == 0,
+check("تأیید skip: هر ۳ ردیف تکراری رد شدند و چیز جدیدی ثبت نشد",
+      _n2 == _n0 and _imp2["dup_rows"] == 3 and _imp2["success_rows"] == 0,
       (_imp2["dup_rows"], _imp2["success_rows"]))
 wb3 = Workbook(); ws3 = wb3.active
 ws3.append(hdr + ["وضعیت"])
@@ -207,6 +212,25 @@ check("ورود تلرانت: فیلد الزامیِ غایب از فایل خ�
       (_imp4["success_rows"], _imp4["error_rows"]))
 check("کارشناس ناشناخته: آپلودکننده + هشدار", _t300 is not None and _t300["user_id"] == 1
       and "رضا کریمی" in (_imp4["warns"] or ""), (_imp4["warns"] or "")[:120])
+
+# نامِ داخل فایل (حتی بدون حساب کاربری) باید «به‌نام خودش» ثبت و نمایش داده شود
+with A.app.app_context():
+    _rows300 = A.query_activities("a.ticket=?", ["T-300"])
+check("کارشناس ناشناخته: نامِ نمایشی = همان نامِ داخل فایل",
+      _rows300 and _rows300[0]["expert_txt"] == "رضا کریمی",
+      _rows300[0]["expert_txt"] if _rows300 else None)
+r = c.get("/")
+check("کارشناس ناشناخته در نمودار تفکیک کارشناس دیده می‌شود",
+      "رضا کریمی".encode() in r.data)
+r = c.get("/reports?export=excel")
+check("خروجی اکسل گزارش ساخته شد", r.status_code == 200
+      and r.data[:2] == b"PK", r.status_code)
+_wb = load_workbook(io.BytesIO(r.data), read_only=True); _ws = _wb.active
+_hd = [c0.value for c0 in next(_ws.iter_rows(max_row=1))]
+_iexp = _hd.index("کارشناس") if "کارشناس" in _hd else -1
+_exp_vals = [row[_iexp].value for row in _ws.iter_rows(min_row=2)] if _iexp >= 0 else []
+check("خروجی اکسل: ستون کارشناس = نامِ داخل فایل",
+      _iexp >= 0 and "رضا کریمی" in _exp_vals, (_hd[:6], _exp_vals[:5]))
 
 # کاربر جدید → نام در اکسل → مالکیت همان کاربر می‌شود
 r = c.post("/users/new", data={"username": "negar", "full_name": "نگار نمونه",
@@ -494,5 +518,70 @@ check("ثبت فعالیت حوزه دوم", "موفقیت".encode() in r.data)
 r = c.get("/reports?export=pdf")
 h6 = r.data.decode()
 check("PDF همه حوزه‌ها نمودار سهم دارد", "سهم حوزه‌ها" in h6)
+
+# ---------- تغییر وضعیت گروهی + حذف گروهی (سطح دسترسی) ----------
+c.get("/logout"); login("admin", "admin123")
+with A.app.app_context():
+    _d = A.get_db()
+    _web = _d.execute("SELECT id FROM domains WHERE name='ارزیابی امنیتی وب'").fetchone()
+    _some = [r0["id"] for r0 in _d.execute(
+        "SELECT id FROM activities ORDER BY id DESC LIMIT 3")]
+    _opt = _d.execute("""SELECT options FROM form_fields
+                         WHERE domain_id=? AND label='وضعیت آسیب‌پذیری'""",
+                      (_web["id"],)).fetchone()
+check("وضعیت آسیب‌پذیری وب: گزینه‌ها تایید/عدم تایید",
+      _opt and json.loads(_opt["options"]) == ["تایید", "عدم تایید"],
+      _opt["options"] if _opt else None)
+
+r = c.post("/activities/bulk-status", json={"ids": _some, "status": "انجام شده"})
+check("تغییر وضعیت گروهی (ادمین)",
+      r.status_code == 200 and r.get_json().get("changed") == len(_some), r.get_json())
+with A.app.app_context():
+    _st = [A.get_db().execute("SELECT status FROM activities WHERE id=?", (i,)).fetchone()["status"]
+           for i in _some]
+check("وضعیت‌ها واقعاً در دیتابیس عوض شد", all(s == "انجام شده" for s in _st), _st)
+r = c.post("/activities/bulk-status", json={"ids": _some, "status": "وضعیت الکی"})
+check("وضعیت نامعتبر گروهی ۴۰۰", r.status_code == 400, r.status_code)
+
+c.get("/logout"); login("negar", "123456")
+r = c.post("/activities/bulk-status", json={"ids": _some, "status": "بررسی شده"})
+check("کارشناس نمی‌تواند «بررسی شده» گروهی بزند", r.status_code == 400, r.status_code)
+r = c.post("/activities/bulk-status", json={"ids": _some, "status": "در حال انجام"})
+check("کارشناس روی فعالیت دیگران اثری ندارد",
+      r.status_code == 200 and r.get_json().get("changed") == 0, r.get_json())
+r = c.post("/activities/bulk-delete", json={"ids": _some})
+check("حذف گروهی برای کارشناسِ بدون مجوز ۴۰۳", r.status_code == 403, r.status_code)
+with A.app.app_context():
+    _still = A.get_db().execute("SELECT COUNT(*) c FROM activities").fetchone()["c"]
+check("هیچ فعالیتی حذف نشد", _still > 0)
+
+# ---------- فیلد تازه‌افزوده‌شده در خروجی + حذف ستون تیکتِ خالی ----------
+c.get("/logout"); login("admin", "admin123")
+r = c.post(f"/domains/{_web['id']}/fields/add",
+           data={"label": "شناسه", "field_type": "text"}, follow_redirects=True)
+check("افزودن فیلد «شناسه» به حوزه وب", "فیلد افزوده شد".encode() in r.data)
+r = c.get(f"/reports?domain={_web['id']}&export=excel")
+check("خروجی اکسل حوزه وب", r.status_code == 200 and r.data[:2] == b"PK", r.status_code)
+_wb = load_workbook(io.BytesIO(r.data), read_only=True); _ws = _wb.active
+_hd = [c0.value for c0 in next(_ws.iter_rows(max_row=1))]
+check("ستون «شناسه» در خروجی هست (حتی بدون مقدار)", "شناسه" in _hd, _hd)
+check("ستون «وضعیت آسیب‌پذیری» در خروجی هست", "وضعیت آسیب‌پذیری" in _hd, _hd)
+
+# حوزه بدون هیچ تیکتی → ستون «شماره تیکت» از خروجی حذف می‌شود
+with A.app.app_context():
+    _d = A.get_db()
+    _mz = _d.execute("""SELECT d.id FROM domains d
+                        WHERE NOT EXISTS(SELECT 1 FROM activities a WHERE a.domain_id=d.id)
+                        ORDER BY d.id LIMIT 1""").fetchone()["id"]
+    _d.execute("""INSERT INTO activities(domain_id,user_id,status,created_at,updated_at)
+                  VALUES(?,?,?,?,?)""",
+               (_mz, 1, A.STATUSES[0], A.now_iso(), A.now_iso()))
+    _d.commit()
+r = c.get(f"/reports?domain={_mz}&export=excel")
+check("خروجی اکسل حوزه بدافزار", r.status_code == 200 and r.data[:2] == b"PK", r.status_code)
+_wb2 = load_workbook(io.BytesIO(r.data), read_only=True); _ws2 = _wb2.active
+_hd2 = [c0.value for c0 in next(_ws2.iter_rows(max_row=1))]
+check("ستون «شماره تیکت» برای حوزهٔ بدون تیکت حذف شد",
+      "شماره تیکت" not in _hd2, _hd2)
 
 print(f"\n✅ همه {len(ok)} تست موفقیت‌آمیز بود.")

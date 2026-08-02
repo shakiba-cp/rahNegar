@@ -89,7 +89,7 @@ DOMAIN_FIELDS = {
                                       "پروفایل ۴", "پروفایل ۵", "پروفایل ۶"], 0, ""),
         ("آسیب پذیری", "textarea", None, [], 0, ""),
         ("شدت", "select", None, SEV, 1, ""),
-        ("وضعیت آسیب‌پذیری", "select", None, VULN_ST, 0, ""),
+        ("وضعیت آسیب‌پذیری", "select", None, ["تایید", "عدم تایید"], 0, ""),
         ("آدرس", "text", None, [], 0, ""),
         ("توضیحات", "textarea", None, [], 0, ""),
     ],
@@ -408,6 +408,14 @@ def init_db():
             db.execute(f"ALTER TABLE users ADD COLUMN {col} {ddl}")
         except sqlite3.OperationalError:
             pass
+    # گزینه‌های «وضعیت آسیب‌پذیری» حوزه ارزیابی امنیتی وب → تایید / عدم تایید
+    try:
+        db.execute("""UPDATE form_fields SET options='["تایید", "عدم تایید"]'
+                      WHERE label='وضعیت آسیب‌پذیری' AND field_type='select'
+                        AND domain_id=(SELECT id FROM domains
+                                       WHERE name='ارزیابی امنیتی وب' LIMIT 1)""")
+    except sqlite3.OperationalError:
+        pass
     db.commit()
 
 
@@ -763,8 +771,8 @@ def filters_summary(module="reports"):
     return " • ".join(parts) if parts else "بدون فیلتر (همه موارد)"
 
 
-BASE_COLS = ["حوزه", "عنوان", "کارشناس (کاربر)", "وضعیت", "تاریخ (شمسی)", "شماره تیکت"]
-SKIP_FIELD_LABELS = {"کارشناس", "تاریخ", "وضعیت", "شماره تیکت", "شناسه"}
+BASE_COLS = ["حوزه", "عنوان", "کارشناس", "وضعیت", "تاریخ (شمسی)", "شماره تیکت"]
+SKIP_FIELD_LABELS = {"کارشناس", "تاریخ", "وضعیت", "شماره تیکت"}
 
 
 def export_rows(acts):
@@ -773,6 +781,18 @@ def export_rows(acts):
     ids = [a["id"] for a in acts]
     seen_labels, field_types, fields_map = [], {}, {}
     if ids:
+        # پیش‌بذر ستون‌ها از تعریف فیلدهای فعالِ حوزه‌های موجود در نتیجه — تا فیلدی
+        # که تازه به حوزه اضافه شده و هنوز روی هیچ فعالیتی مقدار ندارد هم ستون بگیرد.
+        dom_ids = sorted({a["domain_id"] for a in acts if "domain_id" in a.keys()})
+        if dom_ids:
+            phd = ",".join("?" * len(dom_ids))
+            for df in db.execute(f"""SELECT label FROM form_fields
+                                     WHERE domain_id IN ({phd}) AND is_active=1
+                                     ORDER BY domain_id, sort_order""", dom_ids):
+                if (df["label"] not in seen_labels
+                        and df["label"] not in SKIP_FIELD_LABELS
+                        and df["label"] not in BASE_COLS):
+                    seen_labels.append(df["label"])
         ph = ",".join("?" * len(ids))
         rows = db.execute(f"""SELECT v.activity_id, v.field_id, v.value, f.label, f.field_type
                               FROM activity_values v JOIN form_fields f ON f.id=v.field_id
@@ -788,7 +808,9 @@ def export_rows(acts):
     data = []
     for a in acts:
         vals = fields_map.get(a["id"], {})
-        row = [a["domain_name"], a["title"] or "", a["expert_name"], a["status"],
+        row = [a["domain_name"], a["title"] or "",
+               (a["expert_txt"] or a["expert_name"]) if "expert_txt" in a.keys() else a["expert_name"],
+               a["status"],
                jalali.fa(jalali.g_str_to_j(a["date"])) if a["date"] else "",
                a["ticket"] or ""]
         for c in seen_labels:
@@ -801,6 +823,13 @@ def export_rows(acts):
                 v = jalali.fa(jalali.g_str_to_j(v))
             row.append("" if v is None else v)
         data.append(row)
+    # ستون «شماره تیکت» فقط وقتی می‌آید که حداقل یک ردیف تیکت داشته باشد
+    # (برخی حوزه‌ها مثل ارزیابی امنیتی وب اصلاً تیکت ندارند)
+    if data and "شماره تیکت" in header and all(not r[header.index("شماره تیکت")] for r in data):
+        ti = header.index("شماره تیکت")
+        header.pop(ti)
+        for r in data:
+            r.pop(ti)
     return header, data
 
 
@@ -864,10 +893,16 @@ def dashboard_payload():
         SELECT e.*, d.name domain_name, u.full_name FROM excel_imports e
         LEFT JOIN domains d ON d.id=e.domain_id LEFT JOIN users u ON u.id=e.user_id
         ORDER BY e.id DESC LIMIT 5""").fetchall()
+    # تفکیک کارشناس بر اساس «نام نمایشی»: همان نامی که در فیلد کارشناسِ فعالیت ثبت
+    # شده (حتی اگر در فهرست کاربران سامانه نباشد)؛ نام مدیران سامانه حذف می‌شود.
     per_expert = db.execute(f"""
-        SELECT u.full_name n, COUNT(a.id) c FROM activities a
-        JOIN users u ON u.id=a.user_id WHERE 1=1 {mine} AND u.role != 'admin'
-        GROUP BY a.user_id ORDER BY c DESC, u.full_name LIMIT 15""", mp).fetchall()
+        SELECT n, COUNT(*) c FROM (
+            SELECT COALESCE(NULLIF(TRIM((SELECT v.value FROM activity_values v
+                     JOIN form_fields ff ON ff.id=v.field_id AND ff.field_key='expert'
+                     WHERE v.activity_id=a.id LIMIT 1)), ''), u.full_name) AS n
+            FROM activities a JOIN users u ON u.id=a.user_id WHERE 1=1 {mine}
+        ) WHERE n NOT IN (SELECT full_name FROM users WHERE role='admin')
+        GROUP BY n ORDER BY c DESC, n LIMIT 15""", mp).fetchall()
     last_acts = db.execute(f"""
         SELECT a.*, d.name domain_name, u.full_name expert_name FROM activities a
         JOIN domains d ON d.id=a.domain_id JOIN users u ON u.id=a.user_id
@@ -982,6 +1017,8 @@ def activities():
     return render_template("activities.html", acts=acts, acts_json=acts_json,
                            total=total, domains=domains, flt_domains=flt_domains,
                            flt_users=flt_users,
+                           bulk_statuses=(STATUSES if g.user["role"] == "admin"
+                                          else EXPERT_STATUSES),
                            users=users, statuses=STATUSES)
 
 
@@ -1223,9 +1260,12 @@ def activities_bulk_delete():
     db = get_db()
     n = 0
     for aid in ids:
-        row = db.execute("SELECT id FROM activities WHERE id=?", (aid,)).fetchone()
+        row = db.execute("SELECT id, user_id FROM activities WHERE id=?",
+                         (aid,)).fetchone()
         if not row:
             continue
+        if g.user["role"] != "admin" and row["user_id"] != g.user["id"]:
+            continue  # کارشناس فقط فعالیت‌های خودش را می‌تواند حذف کند
         for t in db.execute("SELECT stored_name FROM attachments WHERE activity_id=?",
                             (aid,)):
             path = os.path.join(UPLOAD_DIR, t["stored_name"])
@@ -1236,6 +1276,33 @@ def activities_bulk_delete():
         n += 1
     db.commit()
     return jsonify({"ok": True, "deleted": n})
+
+
+@app.route("/activities/bulk-status", methods=["POST"])
+@perm_required("can_edit")
+def activities_bulk_status():
+    """تغییر وضعیت گروهی — بدنه: {"ids": [..], "status": "انجام شده"}"""
+    body = request.get_json(silent=True) or {}
+    ids = [int(x) for x in (body.get("ids") or []) if str(x).isdigit()][:500]
+    status = str(body.get("status") or "").strip()
+    # کارشناس نمی‌تواند «بررسی شده» بزند (مثل ثبت/ویرایش تکی)
+    allowed = STATUSES if g.user["role"] == "admin" else EXPERT_STATUSES
+    if status not in allowed:
+        return jsonify({"ok": False, "error": "وضعیت نامعتبر است"}), 400
+    db = get_db()
+    n = 0
+    for aid in ids:
+        row = db.execute("SELECT id, user_id FROM activities WHERE id=?",
+                         (aid,)).fetchone()
+        if not row:
+            continue
+        if g.user["role"] != "admin" and row["user_id"] != g.user["id"]:
+            continue  # کارشناس فقط روی فعالیت‌های خودش
+        db.execute("UPDATE activities SET status=?, flagged=0, updated_at=? WHERE id=?",
+                   (status, now_iso(), aid))
+        n += 1
+    db.commit()
+    return jsonify({"ok": True, "changed": n})
 
 
 @app.route("/activities/<int:activity_id>/delete", methods=["POST"])
@@ -1636,6 +1703,7 @@ def _process_excel(domain, data, filename, dup_mode="ask"):
         return log_id
 
     errors, success, warns, owner_fix = [], 0, [], 0
+    unknown_experts = {}   # نام کارشناسِ تعریف‌نشده → ردیف‌ها (ثبت با همان نامِ فایل)
     total = max(0, len(rows) - 1)
     fids_sorted = sorted(f["id"] for f in fields)
     have_sigs, seen_sigs, seen_raw, sig_map = set(), set(), set(), {}
@@ -1698,6 +1766,9 @@ def _process_excel(domain, data, filename, dup_mode="ask"):
         if g.user["role"] != "admin" and status == "بررسی شده":
             status = STATUSES[1]
         # نگاشت کارشناس ردیف به کاربر سامانه — پیش‌فرض: خودِ آپلودکننده
+        # نکته: نام کارشناسِ داخل فایل به‌هر‌حال در فیلد «کارشناس» ثبت می‌شود و همان
+        # در همهٔ نماها (لیست/جزئیات/خروجی/نمودار) نمایش داده می‌شود؛ مالکیت فقط برای
+        # سطح دسترسی است و وقتی کاربرِ نظیر در سامانه نیست، به آپلودکننده می‌رسد.
         owner_id, owner_mapped = g.user["id"], False
         if expert_fid is not None:
             ev = str(record.get(expert_fid) or "").strip()
@@ -1706,8 +1777,7 @@ def _process_excel(domain, data, filename, dup_mode="ask"):
                 if mu is not None:
                     owner_id, owner_mapped = mu, True
                 else:
-                    warns.append(f"ردیف {jalali.fa(idx)}: کارشناس «{ev}» در فهرست کاربران "
-                                 f"سامانه یافت نشد — فعالیت به نام شما ثبت شد")
+                    unknown_experts.setdefault(ev, []).append(idx)
         # --- تشخیص ردیف تکراری:
         #     • درون فایل: کل سطر خام باید دقیقاً مثل سطر قبلی باشد
         #     • با دیتابیس: مقادیر ستون‌های نگاشت‌شده مشابه یک فعالیت موجود باشد
@@ -1729,6 +1799,12 @@ def _process_excel(domain, data, filename, dup_mode="ask"):
         seen_raw.add(raw_sig)
         seen_sigs.add(sig)
         parsed.append((record, status, owner_id, flag))
+    # کارشناسانِ ناشناخته: یک هشدار تجمیعی به‌ازای هر نام (فعالیت با همان نامِ فایل ثبت می‌شود)
+    for _name, _idxs in unknown_experts.items():
+        _rt = "، ".join(jalali.fa(i) for i in _idxs[:12]) + ("…" if len(_idxs) > 12 else "")
+        warns.append(f"کارشناس «{_name}» ({jalali.fa(len(_idxs))} ردیف: {_rt}) در فهرست "
+                     f"کاربران سامانه نیست — فعالیت‌ها با همان نام «{_name}» ثبت شدند "
+                     f"و مالکیت مدیریتی‌شان با شماست")
     if dup_mode == "ask" and dups:
         return {"ask": True, "total": total, "new_n": len(parsed),
                 "dups": dups, "errors_n": len(errors)}
@@ -1764,12 +1840,14 @@ def _process_excel(domain, data, filename, dup_mode="ask"):
     if flagged_n:
         flash(f"{jalali.fa(flagged_n)} ردیف دارای نقص وارد شد و با برچسب قرمز "
               f"«نیازمند اصلاح» علامت خورد — بعداً آن‌ها را ویرایش و اصلاح کنید.", "warning")
-    if warns:
+    if unknown_experts:
+        _n = sum(len(v) for v in unknown_experts.values())
         valid_names = "، ".join(sorted({r["full_name"] for r in db.execute(
             "SELECT full_name FROM users WHERE is_active=1")}))
-        flash(f"{jalali.fa(len(warns))} ردیف کارشناس ناشناخته داشتند و به نام شما ثبت شدند "
-              f"(جزئیات در صفحهٔ نتیجه). نام کارشناس در فایل باید یکی از این‌ها باشد: "
-              f"{valid_names}", "warning")
+        flash(f"{jalali.fa(_n)} ردیف کارشناس‌شان در فهرست کاربران سامانه نبود؛ فعالیت‌ها "
+              f"با همان نامِ داخل فایل ثبت شدند و فقط مالکیت مدیریتی آن‌ها با شماست. "
+              f"برای اتصال به حساب کاربری، نامِ داخل فایل باید دقیقاً برابر «نام کامل» یا "
+              f"«نام کاربری» یکی از این کاربران باشد: {valid_names}", "warning")
     return log_id
 
 
