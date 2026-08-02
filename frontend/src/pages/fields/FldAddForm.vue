@@ -26,6 +26,7 @@ export default {
           <option value="number">عدد</option>
           <option value="date">تاریخ (شمسی)</option>
           <option value="select">لیست کشویی</option>
+          <option value="file">فایل (آپلود مستندات)</option>
         </select></div>
       <div id="opts-box" v-show="t==='select'"><label>گزینه‌های لیست (هر خط یک گزینه)</label><textarea name="options" rows="3"></textarea></div>
       <div>
