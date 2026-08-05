@@ -32,7 +32,7 @@ UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")
 
 STATUSES = ["در حال انجام", "انجام شده", "بررسی شده"]
 EXPERT_STATUSES = ["در حال انجام", "انجام شده"]
-DEFAULT_FORMATS = "pdf,doc,docx,xls,xlsx,jpg,jpeg,png,zip"
+DEFAULT_FORMATS = "pdf,doc,docx,xls,xlsx,csv,jpg,jpeg,png,zip"
 
 # نگاشت حوزه‌ها به شناسه آیکن SVG (symbol id در اسپرایت base.html)
 DOMAIN_ICONS = {
@@ -86,13 +86,13 @@ DOMAIN_FIELDS = {
         ("شناسه فرآیند", "text", None, [], 0, ""),
         ("تاریخ", "date", "date", [], 1, ""),
         ("کارشناس", "text", "expert", [], 1, ""),
-        ("کارفرما", "text", "title", [], 1, ""),
+        ("کارفرما", "text", None, [], 1, ""),
         ("پروفایل", "select", None, ["پروفایل صفر", "پروفایل ۱", "پروفایل ۲", "پروفایل ۳",
                                       "پروفایل ۴", "پروفایل ۵", "پروفایل ۶"], 0, ""),
         ("آسیب پذیری", "textarea", None, [], 0, ""),
         ("شدت", "select", None, SEV, 1, ""),
         ("وضعیت آسیب‌پذیری", "select", None, ["تایید", "عدم تایید"], 0, ""),
-        ("آدرس", "text", None, [], 0, ""),
+        ("آدرس", "text", "title", [], 0, ""),
         ("توضیحات", "textarea", None, [], 0, ""),
     ],
     "اخبار پورتال ماهر": [
@@ -202,7 +202,7 @@ DOMAIN_FIELDS = {
 
 app = Flask(__name__)
 # نسخه دارایی‌های استاتیک برای شکستن کش مرورگر بعد از هر آپدیت (cache-busting)
-ASSET_V = "6.2.0"
+ASSET_V = "6.3.0"
 app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
 # تقویت امنیت کوکی نشست — Secure را هنگام HTTPS با متغیر محیطی SECURE_COOKIE=1 فعال کنید
 app.config["SESSION_COOKIE_HTTPONLY"] = True
@@ -445,6 +445,28 @@ def init_db():
                       WHERE label='وضعیت آسیب‌پذیری' AND field_type='select'
                         AND domain_id=(SELECT id FROM domains
                                        WHERE name='ارزیابی امنیتی وب' LIMIT 1)""")
+    except sqlite3.OperationalError:
+        pass
+    # افزودن فرمت csv به فهرست فرمت‌های مجاز پیوست برای پایگاه‌های موجود
+    _fmts = get_setting("allowed_formats", "") or ""
+    if "csv" not in [e.strip() for e in _fmts.lower().split(",") if e.strip()]:
+        set_setting("allowed_formats", (_fmts.rstrip(",") + ",csv").strip(","))
+    # عنوان ردیف‌های «ارزیابی امنیتی وب» از فیلد «آدرس» گرفته می‌شود (به‌جای کارفرما)؛
+    # پس از تغییر کلید فیلد، عنوان فعالیت‌های موجود این حوزه هم یک‌بار همگام‌سازی می‌شود.
+    try:
+        _dw = db.execute("SELECT id FROM domains WHERE name='ارزیابی امنیتی وب'"
+                         " LIMIT 1").fetchone()
+        if _dw:
+            _c1 = db.execute("UPDATE form_fields SET field_key=NULL WHERE domain_id=?"
+                             " AND label='کارفرما' AND field_key='title'",
+                             (_dw["id"],)).rowcount
+            _c2 = db.execute("UPDATE form_fields SET field_key='title' WHERE domain_id=?"
+                             " AND label='آدرس' AND (field_key IS NULL OR field_key='')",
+                             (_dw["id"],)).rowcount
+            if _c1 or _c2:
+                for _a in db.execute("SELECT id FROM activities WHERE domain_id=?",
+                                     (_dw["id"],)).fetchall():
+                    _sync_meta(_a["id"])
     except sqlite3.OperationalError:
         pass
     # هم‌ترازی افزودنی حوزه‌ها با نسخهٔ جدید: فیلدهای تعریف‌شدهٔ جدید (مثل «شناسه فرآیند»)
@@ -1638,10 +1660,10 @@ def import_excel():
             flash("حوزه را انتخاب کنید.", "error")
             return redirect(url_for("import_excel"))
         if not f or not f.filename:
-            flash("فایل Excel را انتخاب کنید.", "error")
+            flash("فایل Excel یا CSV را انتخاب کنید.", "error")
             return redirect(url_for("import_excel"))
-        if not f.filename.lower().endswith((".xlsx", ".xlsm")):
-            flash("فقط فایل Excel با فرمت xlsx پذیرفته می‌شود.", "error")
+        if not f.filename.lower().endswith((".xlsx", ".xlsm", ".csv")):
+            flash("فقط فایل Excel (xlsx) یا CSV پذیرفته می‌شود.", "error")
             return redirect(url_for("import_excel"))
         domain = get_domain_or_404(domain_id)
         data = f.read()
@@ -1649,7 +1671,8 @@ def import_excel():
         if isinstance(res, dict):
             # ردیف تکراری پیدا شد — پیش از هر ثبتی از کاربر سؤال می‌کنیم
             token = secrets.token_hex(12)
-            tmp = os.path.join(UPLOAD_DIR, f"tmp_imp_{g.user['id']}_{token}.xlsx")
+            _ext = os.path.splitext(f.filename)[1].lower() or ".xlsx"
+            tmp = os.path.join(UPLOAD_DIR, f"tmp_imp_{g.user['id']}_{token}{_ext}")
             os.makedirs(UPLOAD_DIR, exist_ok=True)
             with open(tmp, "wb") as fh:
                 fh.write(data)
@@ -1664,7 +1687,7 @@ def import_excel():
     try:
         import glob as _glob
         import time as _time
-        for pth in _glob.glob(os.path.join(UPLOAD_DIR, "tmp_imp_*.xlsx")):
+        for pth in _glob.glob(os.path.join(UPLOAD_DIR, "tmp_imp_*")):
             if os.path.getmtime(pth) < _time.time() - 86400:
                 os.remove(pth)
     except OSError:
@@ -1854,25 +1877,54 @@ def _domain_sig_map(db, domain_id, fids_sorted):
     return out
 
 
+def _read_table_rows(data, filename):
+    """خواندن سطرهای فایل ورودی (xlsx/xlsm/csv) به‌صورت فهرست تاپل؛ در صورت خطا None."""
+    if str(filename or "").lower().endswith(".csv"):
+        import csv as _csv
+        text = None
+        for enc in ("utf-8-sig", "utf-8", "cp1256", "windows-1252"):
+            try:
+                text = data.decode(enc)
+                break
+            except (UnicodeDecodeError, ValueError):
+                continue
+        if text is None:
+            return None
+        sample = text[:4096]
+        try:
+            dialect = _csv.Sniffer().sniff(sample, delimiters=",;\t|")
+        except _csv.Error:
+            dialect = _csv.excel
+        try:
+            rows = [tuple(c.strip() if isinstance(c, str) else c for c in row)
+                    for row in _csv.reader(io.StringIO(text), dialect)]
+            return [r for r in rows]
+        except _csv.Error:
+            return None
+    try:
+        ws = load_workbook(io.BytesIO(data), read_only=True, data_only=True).active
+        return list(ws.iter_rows(values_only=True))
+    except Exception:
+        return None
+
+
 def _process_excel(domain, data, filename, dup_mode="ask"):
-    """پردازش فایل Excel حوزه.
+    """پردازش فایل Excel/CSV حوزه.
     dup_mode:
       'ask'   — اگر ردیف تکراری (همهٔ ستون‌ها مشابه یک فعالیت موجود یا تکرار در خود فایل)
                  باشد، چیزی ثبت نمی‌کند و دیکشنری پیش‌نمایش برمی‌گرداند تا از کاربر سؤال شود
       'skip'  — فقط رکوردهای جدید ثبت می‌شوند؛ ردیف‌های تکراری نادیده گرفته می‌شوند
       'force' — همهٔ رکوردهای معتبر ثبت می‌شوند (حتی تکراری‌ها)"""
     db = get_db()
-    try:
-        ws = load_workbook(io.BytesIO(data), read_only=True, data_only=True).active
-    except Exception:
-        flash("فایل به‌درستی خوانده نشد. یک فایل xlsx معتبر انتخاب کنید.", "error")
+    rows = _read_table_rows(data, filename)
+    if rows is None:
+        flash("فایل به‌درستی خوانده نشد. یک فایل xlsx یا csv معتبر انتخاب کنید.", "error")
         return db.execute("INSERT INTO excel_imports(domain_id,user_id,filename,total_rows,"
                           "success_rows,error_rows,errors,imported_at) VALUES(?,?,?,?,0,?,?,?)",
                           (domain["id"], g.user["id"], filename, 0, 0,
                            "فایل خوانده نشد", now_iso())).lastrowid
 
     fields = get_fields(domain["id"])
-    rows = list(ws.iter_rows(values_only=True))
     while rows and all(c is None or str(c).strip() == "" for c in rows[0]):
         rows.pop(0)
     if not rows:
@@ -2809,6 +2861,19 @@ def _404(_e):
     if not g.user:
         return redirect(url_for("login"))
     return render_template("error.html", code=404, msg="صفحه یافت نشد."), 404
+
+
+@app.errorhandler(413)
+def _413(_e):
+    if not getattr(g, "user", None):
+        g.user = current_user()
+    if not g.user:
+        return redirect(url_for("login"))
+    msg = (f"حجم فایل ارسالی از سقف مجاز ({max_upload_mb()} مگابایت) بیشتر است. "
+           "فایل کوچک‌تری انتخاب کنید یا از مدیر سامانه بخواهید در «تنظیمات» "
+           "سقف حجم آپلود را افزایش دهد. اگر این پیام از وب‌سرور (nginx) آمده است "
+           "باید مقدار client_max_body_size در تنظیمات nginx افزایش یابد.")
+    return render_template("error.html", code=413, msg=msg), 413
 
 
 with app.app_context():

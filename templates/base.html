@@ -80,7 +80,7 @@
         <a href="{{ url_for('activities') }}" class="{{ 'active' if request.endpoint in ('activities','activity_view','activity_edit','activity_new') }}"><svg class="ic"><use href="#i-pencil"/></svg><span>فعالیت‌ها</span>{% if nav_tasks %}<span class="nb" title="تسک‌های باز تخصیص‌یافته به شما">{{ nav_tasks|fa }}</span>{% endif %}</a>
         <a href="{{ url_for('tasks_page') }}" class="{{ 'active' if request.endpoint=='tasks_page' }}"><svg class="ic"><use href="#i-ticket"/></svg><span>{{ 'تخصیص تسک' if g.user['role']=='admin' else 'تسک‌های من' }}</span>{% if nav_tasks %}<span class="nb" title="تسک‌های باز تخصیص‌یافته به شما">{{ nav_tasks|fa }}</span>{% endif %}</a>
         <a href="{{ url_for('reports') }}" class="{{ 'active' if request.endpoint=='reports' }}"><svg class="ic"><use href="#i-chart"/></svg><span>گزارش‌ها</span></a>
-        {% if perms.import %}<a href="{{ url_for('import_excel') }}" class="{{ 'active' if request.endpoint in ('import_excel','import_result') }}"><svg class="ic"><use href="#i-inbox"/></svg><span>ورود از Excel</span></a>{% endif %}
+        {% if perms.import %}<a href="{{ url_for('import_excel') }}" class="{{ 'active' if request.endpoint in ('import_excel','import_result') }}"><svg class="ic"><use href="#i-inbox"/></svg><span>ورود فایل</span></a>{% endif %}
         {% if g.user and g.user['role']=='admin' %}
         <div class="gdd" id="gdd">
           <a class="gd-l {{ 'active' if request.endpoint in ('manage','users','user_new','user_edit','settings','domains_page','fields_page') }}" href="{{ url_for('manage') }}"><svg class="ic"><use href="#i-sliders"/></svg><span>مدیریت</span></a>
@@ -122,7 +122,7 @@
         'activity_new':('فعالیت‌ها','ثبت فعالیت'),'reports':('گزارش‌ها',null),
         'manage':('مدیریت',null),'profile':('پروفایل من',null),
         'tasks_page':('تخصیص تسک' if g.user['role']=='admin' else 'تسک‌های من',null),
-        'import_excel':('ورود از Excel',null),'import_result':('ورود از Excel','نتیجه ورود'),
+        'import_excel':('ورود فایل',null),'import_result':('ورود فایل','نتیجه ورود'),
         'users':('کاربران',null),'user_new':('کاربران','کاربر جدید'),'user_edit':('کاربران','ویرایش کاربر'),
         'settings':('تنظیمات',null),'domains_page':('تنظیمات','مدیریت حوزه‌ها'),'fields_page':('تنظیمات','مدیریت فیلدها')} %}
       {% set back_map = {'manage':('dashboard','داشبورد'),
@@ -131,7 +131,7 @@
         'fields_page':('domains_page','مدیریت حوزه‌ها'),
         'activity_new':('activities','فعالیت‌ها'),
         'profile':('dashboard','داشبورد'),
-        'import_result':('import_excel','ورود از Excel')} %}
+        'import_result':('import_excel','ورود فایل')} %}
       {% set crumb = crumb_map.get(request.endpoint) %}
       {% set back = back_map.get(request.endpoint) %}
       {% if back or (crumb and crumb[1]) %}

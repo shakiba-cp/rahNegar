@@ -75,17 +75,17 @@ check("ثبت فعالیت", "فعالیت با موفقیت ثبت شد".encode
 with A.app.app_context():
     act = A.get_db().execute("SELECT * FROM activities ORDER BY id DESC LIMIT 1").fetchone()
 check("meta: تاریخ میلادی صحیح", act["date"] == "2026-07-20", act["date"])
-check("meta: عنوان از فیلد کارفرما", act["title"] == "بانک الف", act["title"])
+check("meta: عنوان از فیلد آدرس", act["title"] == "https://example.com", act["title"])
 check("meta: تیکت", act["ticket"] == "T-4321")
 aid = act["id"]
 
 # ---------- لیست/جستجو/فیلتر
 r = c.get("/activities?q=بانک")
-check("جستجوی عنوان", "بانک الف".encode() in r.data)
+check("جستجوی مقدار کارفرما", "https://example.com".encode() in r.data)
 r = c.get("/activities?from__y=1405&from__m=04&from__d=01&to__y=1405&to__m=05&to__d=31")
-check("فیلتر بازه شمسی", "بانک الف".encode() in r.data)
+check("فیلتر بازه شمسی", "https://example.com".encode() in r.data)
 r = c.get("/activities?from__y=1400&from__m=01&from__d=01&to__y=1401&to__m=12&to__d=29")
-check("بازه قدیمی خالی", "فعالیتی یافت نشد".encode() in r.data or "بانک الف".encode() not in r.data)
+check("بازه قدیمی خالی", "فعالیتی یافت نشد".encode() in r.data or "https://example.com".encode() not in r.data)
 
 # ---------- ویرایش
 payload[f"f{fmap['آدرس']['id']}"] = "https://new.example.com"
@@ -260,7 +260,7 @@ with A.app.app_context():
 check("تیکت از Excel خوانده شد", any(r["ticket"] == "T-100" for r in t_rows),
       [r["ticket"] for r in t_rows])
 r = c.get("/activities?ticket=T-100")
-check("جستجوی تیکتِ واردشده از Excel", "شرکت ج".encode() in r.data)
+check("جستجوی تیکتِ واردشده از Excel", "https://b.ir".encode() in r.data)
 
 # --- سلول عددی اکسل (4321.0) به تیکت صحیح «4321» تبدیل می‌شود
 wb_n = Workbook()
@@ -328,9 +328,46 @@ r = c.get(f"/import/template/{dom['id']}")
 check("دانلود قالب نمونه xlsx", r.status_code == 200
       and r.data[:2] == b"PK")
 
+# ---------- ورود CSV (همان مسیر Excel) + کلید عنوان «آدرس»
+with A.app.app_context():
+    _d = A.get_db()
+    _ak = _d.execute("SELECT field_key FROM form_fields WHERE domain_id=? AND label='آدرس'",
+                     (dom["id"],)).fetchone()["field_key"]
+    _ck = _d.execute("SELECT field_key FROM form_fields WHERE domain_id=? AND label='کارفرما'",
+                     (dom["id"],)).fetchone()["field_key"]
+check("کلید عنوان حوزه وب: «آدرس» نه «کارفرما»", _ak == "title" and not _ck, (_ak, _ck))
+
+_csv = ("تاریخ,کارشناس,کارفرما,شدت,آدرس\n"
+        "1405/04/30,مدیر سامانه,سازمان csv,زیاد,https://csv.example\n").encode("utf-8-sig")
+r = c.post("/import", data={"domain_id": str(dom["id"]),
+                            "file": (io.BytesIO(_csv), "import.csv")},
+           content_type="multipart/form-data", follow_redirects=True)
+check("ورود فایل CSV", "فعالیت با موفقیت ثبت شد".encode() in r.data, r.data[:80])
+with A.app.app_context():
+    _csv_act = A.get_db().execute(
+        "SELECT title FROM activities WHERE title='https://csv.example'").fetchone()
+check("ردیف CSV ثبت شد (عنوان=آدرس)", _csv_act is not None,
+      _csv_act["title"] if _csv_act else None)
+
+# CSV با جداکننده نقطه‌ویرگول
+_csv2 = ("تاریخ;کارشناس;آدرس\n1405/05/01;مدیر سامانه;https://semi.example\n").encode("utf-8")
+r = c.post("/import", data={"domain_id": str(dom["id"]),
+                            "file": (io.BytesIO(_csv2), "semi.csv")},
+           content_type="multipart/form-data", follow_redirects=True)
+with A.app.app_context():
+    _semi = A.get_db().execute(
+        "SELECT title FROM activities WHERE title='https://semi.example'").fetchone()
+check("ورود CSV با جداکننده «؛»", _semi is not None, _semi["title"] if _semi else None)
+
+# فایل نامعتبر رد شود
+r = c.post("/import", data={"domain_id": str(dom["id"]),
+                            "file": (io.BytesIO(b"x"), "bad.txt")},
+           content_type="multipart/form-data", follow_redirects=True)
+check("رد فرمت غیرمجاز در ورود", "پذیرفته می‌شود".encode() in r.data)
+
 # ---------- گزارش‌ها و خروجی‌ها
 r = c.get("/reports?ticket=4321")
-check("گزارش با فیلتر تیکت", "بانک الف".encode() in r.data)
+check("گزارش با فیلتر تیکت", "new.example.com".encode() in r.data)
 r = c.get("/reports?export=csv")
 check("خروجی CSV", r.status_code == 200 and r.data.startswith(b"\xef\xbb\xbf")
       and "شماره تیکت".encode("utf-8") in r.data)
@@ -391,7 +428,8 @@ c.get("/logout")
 r = login("reza", "123456")
 check("ورود کارشناس", r.status_code == 200)
 r = c.get("/activities")
-check("کارشناس فقط فعالیت خودش را می‌بیند", "بانک الف".encode() not in r.data)
+check("کارشناس فقط فعالیت خودش را می‌بیند", "بانک الف".encode() not in r.data
+      and "new.example.com".encode() not in r.data)
 r = c.get(f"/activities/{aid}")
 check("کارشناس به فعالیت دیگران ۴۰۳", r.status_code == 403)
 r = c.get("/users")
@@ -415,7 +453,7 @@ for f in fmap.values():
     elif f["field_type"] == "select":
         payload3[f"f{f['id']}"] = "کم"
     else:
-        payload3[f"f{f['id']}"] = "تسک مدیر برای رضا" if f["label"] == "کارفرما" else "تست"
+        payload3[f"f{f['id']}"] = "تسک مدیر برای رضا" if f["label"] == "آدرس" else "تست"
 r = c.post(f"/activities/new?domain_id={dom['id']}", data=payload3, follow_redirects=True)
 check("تخصیص تسک توسط مدیر", "تخصیص یافت".encode() in r.data)
 c.get("/logout"); login("reza", "123456")
@@ -436,7 +474,7 @@ for f in fmap.values():
     elif f["field_type"] == "select":
         payload2[f"f{f['id']}"] = "کم"
     else:
-        payload2[f"f{f['id']}"] = "فعالیت رضا" if f["label"] == "کارفرما" else "تست"
+        payload2[f"f{f['id']}"] = "فعالیت رضا" if f["label"] == "آدرس" else "تست"
 r = c.post(f"/activities/new?domain_id={dom['id']}", data=payload2, follow_redirects=True)
 check("ثبت فعالیت کارشناس", "موفقیت".encode() in r.data)
 r = c.get("/reports")
