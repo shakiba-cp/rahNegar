@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}پرونده‌ها | {{ sys_name }}{% endblock %}
+{% block page_title %}<svg class="ic pt-ic"><use href="#i-clip"/></svg> پرونده‌ها{% endblock %}
+{% block page_desc %}{{ total_n|fa }} فایل — مجموع {{ total_size }}{% if g.user['role']!='admin' %} (فقط فایل‌های فعالیت‌های خودتان){% endif %}{% endblock %}
+{% block content %}
+<div class="card">
+  <form method="get" class="fl wrap fle mb-4" style="gap:8px">
+    <input type="text" name="q" value="{{ q }}" placeholder="جستجو در نام فایل، فعالیت یا کارشناس..." class="grow" style="min-width:200px">
+    <select name="org">
+      <option value="">همه مراکز</option>
+      {% for o in orgs %}<option value="{{ o['id'] }}" {{ 'selected' if org==o['id'] }}>{{ o['name'] }}</option>{% endfor %}
+    </select>
+    <select name="domain">
+      <option value="">همه حوزه‌ها</option>
+      {% for d in domains %}<option value="{{ d['id'] }}" {{ 'selected' if dom==d['id'] }}>{{ d['name'] }}</option>{% endfor %}
+    </select>
+    <button class="btn pri" type="submit"><svg class="ic"><use href="#i-search"/></svg> جستجو</button>
+    {% if q or dom or org %}<a class="btn ghost" href="{{ url_for('files_page') }}">پاک‌سازی فیلتر</a>{% endif %}
+  </form>
+  <div class="tbl-wrap"><table class="team-tbl">
+    <thead><tr>
+      <th>نام فایل</th><th>حجم</th><th>حوزه</th><th>فعالیت</th><th>آپلودکننده</th><th>زمان آپلود</th><th></th>
+    </tr></thead>
+    <tbody>
+      {% for t in items %}
+      <tr>
+        <td><b class="ink1"><svg class="ic i14 ink3"><use href="#i-file"/></svg> {{ t.name }}</b></td>
+        <td class="mute" dir="ltr">{{ t.size_fa }}</td>
+        <td><span class="chip chip-tr sm">{{ t.domain }}</span></td>
+        <td><a href="{{ t.act_url }}">{{ t.act }}</a></td>
+        <td>{{ t.user }}</td>
+        <td class="mute fs11">{{ t.when }}</td>
+        <td class="tal"><a class="btn ghost icon" href="{{ t.dl }}" title="دانلود"><svg class="ic"><use href="#i-download"/></svg></a></td>
+      </tr>
+      {% else %}
+      <tr><td colspan="7" class="tac mute" style="padding:34px">فایلی یافت نشد — هنوز هیچ فایلی روی فعالیت‌ها آپلود نشده است یا با فیلتر انتخابی مطابقتی ندارد.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table></div>
+  {% if total_n >= 500 %}<div class="mute fs11 mt-3">فقط ۵۰۰ رکورد آخر نمایش داده می‌شود؛ برای دقت بیشتر از فیلترها استفاده کنید.</div>{% endif %}
+</div>
+{% endblock %}

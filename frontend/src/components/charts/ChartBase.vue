@@ -21,7 +21,7 @@ export default {
       const data = this.d, total = data.reduce((a, d) => a + d.value, 0) || 1,
             real = data.filter(d => d.value > 0);
       return real.length
-        ? real.map(d => `<span title="${faNum(Math.round(d.value / total * 100))}٪"><span class="dot" style="background:${d.color}"></span>${d.label} <b>(${faNum(d.value)})</b></span>`).join('')
+        ? real.map(d => `<span class="lg-it"><span class="dot" style="background:${d.color}"></span>${d.label} <b>${faNum(d.value)}</b><i>(${faNum(Math.round(d.value / total * 100))}٪)</i></span>`).join('')
         : '<span style="color:#94a3b8">داده‌ای نیست</span>';
     }
   },
@@ -38,4 +38,4 @@ export default {
   mounted() { if (this.kind === 'line') attachLineHover(this.$el); },
 };
 </script>
-<template><div v-html="svg" style="display:contents"></div></template>
+<template><div v-html="svg" class="chart-in" style="display:contents"></div></template>

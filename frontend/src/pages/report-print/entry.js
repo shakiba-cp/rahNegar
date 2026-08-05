@@ -11,7 +11,7 @@ if (btn) btn.addEventListener('click', () => window.print());
 const c = data.charts;
 if (c) {
   if (c.domains && c.domains.length > 1) {
-    mountChart('bar', 'ch-bar', c.domains);
+    mountChart('hbar', 'ch-bar', c.domains);
     mountChart('donut', 'ch-dom', c.domains);
   }
   mountChart('donut', 'ch-st', (c.status || []).map(d => ({ ...d, color: STATUS_C[d.label] || '#2563eb' })));

@@ -14,6 +14,7 @@ export default {
       sup: p.supervisor_id != null && p.supervisor_id !== '' ? String(p.supervisor_id) : '',
       uname: p.username || '',
       fname: p.full_name || '',
+      al: p.aliases || '',
       role: p.role || 'expert',
       pwd: '',
       pm: {
@@ -43,6 +44,11 @@ export default {
     <div class="mb-3">
       <label class="req">نام کامل</label>
       <input type="text" name="full_name" v-model="fname" required>
+    </div>
+    <div class="mb-3">
+      <label>نام‌های مستعار کارشناس <span class="mute">(اختیاری)</span></label>
+      <textarea name="aliases" v-model="al" rows="2" placeholder="مثلاً: رضایی"></textarea>
+      <div class="mute mt-1">اگر نام این کارشناس در فایل‌های اکسل به شکل دیگری نوشته می‌شود (مثل فقط فامیلی) این‌جا بنویسید تا در نمودارها و گزارش‌ها یکی شمرده شود؛ با ویرگول یا در هر خط جدا کنید.</div>
     </div>
     <div class="mb-3">
       <label>نقش</label>

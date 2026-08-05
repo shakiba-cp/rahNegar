@@ -29,7 +29,8 @@ export default {
         { href: this.p.urls.tasks, icon: 'i-ticket', label: this.p.is_admin ? 'تخصیص تسک' : 'تسک‌های من', on: ep === 'tasks_page', badge: this.p.nav_tasks, badge_title: 'تسک‌های باز تخصیص‌یافته به شما' },
         { href: this.p.urls.reports, icon: 'i-chart', label: 'گزارش‌ها', on: ep === 'reports' },
       ];
-      if (this.p.perm_import) it.push({ href: this.p.urls.import, icon: 'i-inbox', label: 'ورود از Excel', on: ['import_excel', 'import_result'].includes(ep) });
+      if (this.p.perm_import) it.push({ href: this.p.urls.import, icon: 'i-inbox', label: 'ورود فایل', on: ['import_excel', 'import_result'].includes(ep) });
+      it.push({ href: this.p.urls.files, icon: 'i-clip', label: 'پرونده‌ها', on: ep === 'files_page' });
       return it;
     },
     gddOn() { return ['manage', 'users', 'user_new', 'user_edit', 'settings', 'domains_page', 'fields_page'].includes(this.p.endpoint || ''); },

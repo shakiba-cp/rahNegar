@@ -66,8 +66,8 @@ function applyAll(p) {
     mountChart('hbar', 'ch-acts', p.charts.domains);
     if ((p.charts.experts || []).length) {
       mountChart('donut', 'ch-exp', p.charts.experts.map((x, i) => ({
-        ...x, color: ['#0d9488', '#0891b2', '#d97706', '#0284c7', '#059669', '#7c3aed',
-                      '#dc2626', '#f59e0b', '#14b8a6', '#64748b', '#0f766e', '#eab308'][i % 12]
+        ...x, color: ['#0F766E', '#2563EB', '#7C3AED', '#0891B2', '#0D9488', '#6366F1',
+                      '#9333EA', '#0EA5E9', '#14B8A6', '#4F46E5', '#8B5CF6', '#64748B'][i % 12]
       })));
     }
     dash.months = p.charts.monthly || [];

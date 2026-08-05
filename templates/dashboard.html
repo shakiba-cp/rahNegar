@@ -2,6 +2,7 @@
 {% block page_title %}<svg class="ic pt-ic"><use href="#i-home"/></svg> داشبورد{% endblock %}
 {% block page_desc %}نمای کلی شاخص‌های تیم — امروز: {{ today_fa }}{% if g.user['role']!='admin' %} (آمار فعالیت‌های شما){% endif %}{% endblock %}
 {% block content %}
+<div class="dash-v2">
 <div class="sec-strip">
   <span class="ss-i"><svg class="ic"><use href="#i-shield"/></svg></span>
   <b>{{ sys_name }}</b>
@@ -74,7 +75,7 @@
 </div>
 
 <div class="card chart-card">
-  <h3><svg class="ic"><use href="#i-users"/></svg> فعالیت‌ها به تفکیک کارشناس<span class="h3-sub">سهم هر کارشناس از فعالیت‌های ثبت‌شده</span></h3>
+  <h3><svg class="ic"><use href="#i-users"/></svg> فعالیت‌ها به تفکیک کارشناس<span class="h3-sub">سهم هر کارشناس — فعالیت چندکارشناسه برای هر نفر جدا شمرده می‌شود</span></h3>
   <div class="fl" style="justify-content:center"><div class="chart-box mw-280-mxa" id="ch-exp"></div></div>
   <div class="legend" id="ch-exp-legend"></div>
 </div>
@@ -97,6 +98,7 @@
   </div>
 </div>
 
+</div><!-- /.dash-v2 -->
 <script type="application/json" id="dash-data">{{ dash_payload|tojson_script }}</script>
 {% endblock %}
 {% block scripts %}

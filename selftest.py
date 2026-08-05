@@ -114,6 +114,16 @@ r = c.post(f"/activities/{aid}/attachments",
            data={"files": [(io.BytesIO(b"x"), "evil.exe")]},
            content_type="multipart/form-data", follow_redirects=True)
 check("رد فرمت غیرمجاز", "مجاز نیست".encode() in r.data)
+# فایل Word (docx) به پیوست‌ها بدون مشکل آپلود و دانلود می‌شود
+r = c.post(f"/activities/{aid}/attachments",
+           data={"files": [(io.BytesIO(b"DOCX-FAKE-CONTENT"), "مستندات ارزیابی.docx")]},
+           content_type="multipart/form-data", follow_redirects=True)
+check("آپلود فایل Word در پیوست", "فایل پیوست شد".encode() in r.data)
+with A.app.app_context():
+    _dx = A.get_db().execute("SELECT * FROM attachments WHERE activity_id=? AND original_name LIKE '%.docx'",
+                             (aid,)).fetchone()
+r = c.get(f"/attachments/{_dx['id']}/download")
+check("دانلود فایل Word", r.status_code == 200 and r.data == b"DOCX-FAKE-CONTENT")
 
 # ---------- ورود Excel
 wb = Workbook()
@@ -773,14 +783,41 @@ with A.app.app_context():
     _d.commit()
 r = c.get("/api/dashboard")
 _exp = {e["label"]: e["value"] for e in r.get_json()["charts"]["experts"]}
-check("چند نام در یک سلول: بخش‌ها یکدست و با جداکننده یکسان یکجا گروه می‌شوند",
-      _exp.get("کامران ویژه‌پور، مهدی صالحی", 0) == 2, str(_exp))
+check("چند نام در یک سلول: هر کارشناس جداگانه شمرده می‌شود (برچسب ترکیبی نداریم)",
+      "کامران ویژه‌پور، مهدی صالحی" not in _exp, str(_exp))
 check("بخش‌های دوپلیکیت یک نفر یک بار می‌آیند («کامران و کامران ویژه‌پور» ← یک نفر)",
-      _exp.get("کامران ویژه‌پور", 0) == 6, str(_exp))
+      _exp.get("کامران ویژه‌پور", 0) == 8, str(_exp))
+check("شریکِ فعالیت چندکارشناسه هم سهم می‌گیرد («مهدی صالحی» +۲)",
+      _exp.get("مهدی صالحی", 0) == 3, str(_exp))
 r = c.get("/users/new")
 check("فرم کاربر: فیلد «نام‌های مستعار» موجود است", "نام‌های مستعار".encode() in r.data)
 r = c.get("/activities")
 check("لیست فعالیت‌ها: نام ادغام‌شده یکتا نمایش داده می‌شود",
       '"expert": "ویژه‌پور"'.encode() not in r.data, r.data[-100:])
+
+# ---------- پرونده‌ها (/files)
+r = c.get("/files")
+check("صفحه پرونده‌ها برای مدیر باز می‌شود و لینک ناوبری دارد",
+      r.status_code == 200 and "پرونده‌ها".encode() in r.data)
+r = c.get("/files")
+check("فایل‌های آپلودشده در پرونده‌ها دیده می‌شوند",
+      "report-final.pdf".encode() in r.data and "گزارش.pdf".encode() in r.data, r.data[:60])
+r = c.get("/files?q=report-final")
+check("جستجوی نام فایل در پرونده‌ها",
+      "report-final.pdf".encode() in r.data and "گزارش.pdf".encode() not in r.data)
+r = c.get(f"/files?domain={dom['id']}")
+check("فیلتر حوزه در پرونده‌ها دقیق است",
+      "گزارش.pdf".encode() in r.data and "report-final.pdf".encode() in r.data)
+with A.app.app_context():
+    _other_dom = A.get_db().execute("SELECT id FROM domains WHERE id<>? LIMIT 1",
+                                    (dom["id"],)).fetchone()["id"]
+r = c.get(f"/files?domain={_other_dom}")
+check("فیلتر حوزه دیگر در پرونده‌ها خالی است",
+      "گزارش.pdf".encode() not in r.data and "report-final.pdf".encode() not in r.data)
+c.get("/logout"); login("reza", "123456")
+r = c.get("/files")
+check("کارشناس فقط فایل‌های فعالیت‌های خودش را می‌بیند",
+      r.status_code == 200 and "report-final.pdf".encode() not in r.data)
+c.get("/logout"); login("admin", "admin123")
 
 print(f"\n✅ همه {len(ok)} تست موفقیت‌آمیز بود.")

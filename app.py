@@ -202,7 +202,7 @@ DOMAIN_FIELDS = {
 
 app = Flask(__name__)
 # نسخه دارایی‌های استاتیک برای شکستن کش مرورگر بعد از هر آپدیت (cache-busting)
-ASSET_V = "6.3.0"
+ASSET_V = "6.4.1"
 app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
 # تقویت امنیت کوکی نشست — Secure را هنگام HTTPS با متغیر محیطی SECURE_COOKIE=1 فعال کنید
 app.config["SESSION_COOKIE_HTTPONLY"] = True
@@ -992,15 +992,17 @@ def dashboard_payload():
                      WHERE v.activity_id=a.id LIMIT 1)), ''), u.full_name) AS n
             FROM activities a JOIN users u ON u.id=a.user_id WHERE 1=1 {mine}
         ) GROUP BY n""", mp).fetchall()
-    # ادغام نام‌های ناهماهنگ («رضایی» با «علی رضایی») پیش از ترسیم نمودار
+    # ادغام نام‌های ناهماهنگ («رضایی» با «علی رضایی») پیش از ترسیم نمودار؛
+    # فعالیت چندکارشناسه («علی، محمد») به هر کارشناس +۱ جداگانه اضافه می‌کند.
     _admin_names = {r["full_name"] for r in
                     db.execute("SELECT full_name FROM users WHERE role='admin'")}
     _mrg = {}
     for _r in per_expert:
         _cn = _canon_expert(_r["n"])
-        if _cn in _admin_names:
-            continue
-        _mrg[_cn] = _mrg.get(_cn, 0) + _r["c"]
+        for _part in (_name_parts(_cn) or [_cn]):
+            if _part in _admin_names:
+                continue
+            _mrg[_part] = _mrg.get(_part, 0) + _r["c"]
     per_expert = sorted(_mrg.items(), key=lambda kv: (-kv[1], kv[0]))[:15]
     last_acts = db.execute(f"""
         SELECT a.*, d.name domain_name, u.full_name expert_name FROM activities a
@@ -1616,6 +1618,64 @@ def attachment_delete(att_id):
     db.commit()
     flash("فایل حذف شد.", "success")
     return redirect(request.referrer or url_for("activity_view", activity_id=a["id"]))
+
+
+def _fmt_size(n):
+    """حجم فایل به‌صورت خوانا (بایت → KB/MB)."""
+    n = int(n or 0)
+    if n >= 1024 * 1024:
+        return f"{n / 1024 / 1024:.1f} MB"
+    if n >= 1024:
+        return f"{n / 1024:.1f} KB"
+    return f"{n} B"
+
+
+# --------------------------------------------------------------------- پرونده‌ها
+@app.route("/files")
+@login_required
+def files_page():
+    """فهرست همه‌ی فایل‌های آپلودشده روی فعالیت‌ها (کارشناس: فقط فایل‌های فعالیت‌های خودش)."""
+    db = get_db()
+    q = request.args.get("q", "").strip()
+    dom = request.args.get("domain", type=int)
+    org = request.args.get("org", type=int)
+    where, params = ["1=1"], []
+    if g.user["role"] != "admin":
+        where.append("a.user_id=?")
+        params.append(g.user["id"])
+    if dom:
+        where.append("a.domain_id=?")
+        params.append(dom)
+    if org:
+        where.append("a.domain_id IN (SELECT id FROM domains WHERE org_id=?)")
+        params.append(org)
+    if q:
+        where.append("(t.original_name LIKE ? OR a.title LIKE ? OR u.full_name LIKE ?)")
+        params += [f"%{q}%"] * 3
+    rows = db.execute(f"""
+        SELECT t.id, t.original_name, t.size, t.uploaded_at,
+               a.id AS act_id, a.title, d.name domain_name, u.full_name
+        FROM attachments t
+        JOIN activities a ON a.id=t.activity_id
+        JOIN domains d ON d.id=a.domain_id
+        LEFT JOIN users u ON u.id=t.uploaded_by
+        WHERE {' AND '.join(where)}
+        ORDER BY t.id DESC LIMIT 500""", params).fetchall()
+    total_n, total_size = len(rows), sum(r["size"] for r in rows)
+    items = [{
+        "id": r["id"], "name": r["original_name"],
+        "size_fa": jalali.fa(_fmt_size(r["size"])),
+        "when": _jdatetime(r["uploaded_at"]),
+        "act": r["title"] or "بدون عنوان", "act_url": url_for("activity_view", activity_id=r["act_id"]),
+        "domain": r["domain_name"], "user": r["full_name"] or "—",
+        "dl": url_for("attachment_download", att_id=r["id"]),
+    } for r in rows]
+    domains = db.execute("SELECT id, name FROM domains WHERE is_active=1"
+                         " ORDER BY sort_order, id").fetchall()
+    orgs = db.execute("SELECT id, name FROM orgs WHERE is_active=1 ORDER BY sort_order, id").fetchall()
+    return render_template("files.html", items=items, total_n=total_n,
+                           total_size=jalali.fa(_fmt_size(total_size)),
+                           q=q, dom=dom, org=org, domains=domains, orgs=orgs)
 
 
 # --------------------------------------------------------------- خروجی Excel
@@ -2314,6 +2374,7 @@ def manage():
         "domains": db.execute("SELECT COUNT(*) c FROM domains WHERE is_active=1").fetchone()["c"],
         "fields": db.execute("SELECT COUNT(*) c FROM form_fields").fetchone()["c"],
         "imports": db.execute("SELECT COUNT(*) c FROM excel_imports").fetchone()["c"],
+        "files": db.execute("SELECT COUNT(*) c FROM attachments").fetchone()["c"],
         "trainees": db.execute("SELECT COUNT(*) c FROM users WHERE is_active=1 AND is_trainee=1").fetchone()["c"],
     }
     teams = [dict(r) for r in db.execute("""
@@ -2530,6 +2591,22 @@ def logo():
     if os.path.exists(path):
         return send_file(path)
     abort(404)
+
+
+@app.route("/optional-font.css")
+def optional_font_css():
+    """@font-face فونت سازمانی اختیاری (ایران‌سنس): فقط برای فایل‌هایی که واقعاً در
+    static/fonts/iransans/ قرار داده شده‌اند تولید می‌شود — در نبود فایل‌ها پاسخ خالی
+    است تا هیچ خطای 404 در کنسول مرورگر ثبت نشود."""
+    base = os.path.join(BASE_DIR, "static", "fonts", "iransans")
+    rules = []
+    for weight, fname in ((400, "IRANSansX-Regular.woff2"), (500, "IRANSansX-Medium.woff2"),
+                          (600, "IRANSansX-DemiBold.woff2"), (700, "IRANSansX-Bold.woff2")):
+        if os.path.exists(os.path.join(base, fname)):
+            rules.append("@font-face{font-family:'IRANSansX';font-style:normal;"
+                         f"font-weight:{weight};font-display:swap;"
+                         f"src:url(\"/static/fonts/iransans/{fname}\") format('woff2')" + "}")
+    return ("\n".join(rules), 200, {"Content-Type": "text/css; charset=utf-8"})
 
 
 @app.route("/domains", methods=["GET", "POST"])
