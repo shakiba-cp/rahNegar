@@ -7,7 +7,11 @@
 <link rel="stylesheet" href="{{ url_for('optional_font_css') }}?v={{ asset_v }}">
 </head>
 <body>
-<button class="print-btn" id="print-btn"><svg viewBox="0 0 24 24"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg> چاپ / ذخیره PDF</button>
+<div class="ptoolbar no-print">
+  <a class="pt-back" href="{{ back_url or url_for('reports') }}"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg> بازگشت</a>
+  <span class="pt-hint">صفحه آماده است — پس از بررسی، چاپ کنید یا PDF ذخیره کنید.</span>
+  <button class="print-btn" id="print-btn"><svg viewBox="0 0 24 24"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg> چاپ / ذخیره PDF</button>
+</div>
 <div class="head">
   <div class="pflx">
     {% if has_logo %}<img src="{{ url_for('logo') }}" alt="logo">{% endif %}
@@ -42,6 +46,36 @@
 {% endif %}
 {% endif %}
 
+{% macro ptable(cap, hdr, rws, weights) -%}
+<div class="band">
+  {% if cap %}<div class="band-cap">{{ cap }}</div>{% endif %}
+  <table>
+    <colgroup>{% for w in weights %}<col style="width:{{ '%.1f'|format(w) }}%">{% endfor %}</colgroup>
+    <thead><tr>{% for h in hdr %}<th>{{ h }}</th>{% endfor %}</tr></thead>
+    <tbody>
+    {% for r in rws %}
+    <tr>{% for c in r %}<td>{{ c }}</td>{% endfor %}</tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{%- endmacro %}
+
+{% if pt_groups is defined %}
+  {% if pt_summary %}
+  <div class="tgroup">
+    <div class="tg-head">خلاصه کلی — همه حوزه‌ها <span>{{ pt_summary.rows|length|fa }} رکورد</span></div>
+    {{ ptable('', pt_summary.header, pt_summary.rows, pt_summary.weights) }}
+  </div>
+  {% endif %}
+  {% for g in pt_groups %}
+  <div class="tgroup">
+    {% if g.name %}<div class="tg-head">{{ g.name }} <span>{{ g.rows_n|fa }} رکورد</span></div>{% endif %}
+    {% for b in g.bands %}{{ ptable(b.caption, b.header, b.rows, b.weights) }}{% endfor %}
+  </div>
+  {% endfor %}
+  {% if not rows %}<p class="cempty">موردی یافت نشد.</p>{% endif %}
+{% else %}
 <table>
   <thead><tr>{% for h in header %}<th>{{ h }}</th>{% endfor %}</tr></thead>
   <tbody>
@@ -51,9 +85,10 @@
   </tbody>
 </table>
 {% if not rows %}<p class="cempty">موردی یافت نشد.</p>{% endif %}
+{% endif %}
 
 <div class="pfoot"><span>{{ sys_name }}</span><span>{{ title }}</span></div>
 <script type="module" src="{{ url_for('static', filename='dist/report-print.js') }}?v={{ asset_v }}"></script>
-<script type="application/json" id="rp-data">{{ {'charts': charts, 'autoprint': autoprint|default(false)}|tojson_script }}</script>
+<script type="application/json" id="rp-data">{{ {'charts': charts}|tojson_script }}</script>
 </body>
 </html>

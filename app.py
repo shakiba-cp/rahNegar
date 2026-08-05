@@ -22,6 +22,8 @@ import jalali
 
 try:
     from openpyxl import Workbook, load_workbook
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
 except ImportError:  # pragma: no cover
     Workbook = None
     load_workbook = None
@@ -202,7 +204,7 @@ DOMAIN_FIELDS = {
 
 app = Flask(__name__)
 # نسخه دارایی‌های استاتیک برای شکستن کش مرورگر بعد از هر آپدیت (cache-busting)
-ASSET_V = "6.4.1"
+ASSET_V = "6.5.1"
 app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
 # تقویت امنیت کوکی نشست — Secure را هنگام HTTPS با متغیر محیطی SECURE_COOKIE=1 فعال کنید
 app.config["SESSION_COOKIE_HTTPONLY"] = True
@@ -354,6 +356,11 @@ def allowed_formats():
             if x.strip()]
 
 
+def allowed_accept():
+    """رشته accept برای input[type=file] بر اساس فرمت‌های مجاز تنظیمات."""
+    return ",".join("." + x for x in allowed_formats())
+
+
 def max_upload_mb():
     try:
         return max(1, int(get_setting("max_upload_mb", "10")))
@@ -451,24 +458,29 @@ def init_db():
     _fmts = get_setting("allowed_formats", "") or ""
     if "csv" not in [e.strip() for e in _fmts.lower().split(",") if e.strip()]:
         set_setting("allowed_formats", (_fmts.rstrip(",") + ",csv").strip(","))
-    # عنوان ردیف‌های «ارزیابی امنیتی وب» از فیلد «آدرس» گرفته می‌شود (به‌جای کارفرما)؛
-    # پس از تغییر کلید فیلد، عنوان فعالیت‌های موجود این حوزه هم یک‌بار همگام‌سازی می‌شود.
-    try:
-        _dw = db.execute("SELECT id FROM domains WHERE name='ارزیابی امنیتی وب'"
-                         " LIMIT 1").fetchone()
-        if _dw:
+    # عنوان ردیف‌ها از فیلد کلید-عنوان هر حوزه گرفته می‌شود؛ برای حوزه‌هایی که کلید
+    # روی فیلد اشتباه بود یک‌بار اصلاح و عنوان فعالیت‌های موجودشان همگام‌سازی می‌شود:
+    #   وب   ← «آدرس» (به‌جای کارفرما)   |   اندروید ← «برنامه» (به‌جای کارفرما)
+    def _retitle(dom_name, old_label, new_label):
+        try:
+            _d = db.execute("SELECT id FROM domains WHERE name=? LIMIT 1",
+                            (dom_name,)).fetchone()
+            if not _d:
+                return
             _c1 = db.execute("UPDATE form_fields SET field_key=NULL WHERE domain_id=?"
-                             " AND label='کارفرما' AND field_key='title'",
-                             (_dw["id"],)).rowcount
+                             " AND label=? AND field_key='title'",
+                             (_d["id"], old_label)).rowcount
             _c2 = db.execute("UPDATE form_fields SET field_key='title' WHERE domain_id=?"
-                             " AND label='آدرس' AND (field_key IS NULL OR field_key='')",
-                             (_dw["id"],)).rowcount
+                             " AND label=? AND (field_key IS NULL OR field_key='')",
+                             (_d["id"], new_label)).rowcount
             if _c1 or _c2:
                 for _a in db.execute("SELECT id FROM activities WHERE domain_id=?",
-                                     (_dw["id"],)).fetchall():
+                                     (_d["id"],)).fetchall():
                     _sync_meta(_a["id"])
-    except sqlite3.OperationalError:
-        pass
+        except sqlite3.OperationalError:
+            pass
+    _retitle("ارزیابی امنیتی وب", "کارفرما", "آدرس")
+    _retitle("ارزیابی امنیتی اندروید", "کارفرما", "برنامه")
     # هم‌ترازی افزودنی حوزه‌ها با نسخهٔ جدید: فیلدهای تعریف‌شدهٔ جدید (مثل «شناسه فرآیند»)
     # به حوزه‌های موجود اضافه می‌شوند — هیچ فیلدی حذف یا تغییرنام نمی‌یابد تا داده‌ها سالم بمانند.
     try:
@@ -937,6 +949,109 @@ def export_cols_param():
     return []
 
 
+# ---------------------------------------------------- جداول مرتب گزارش چاپی
+_WIDE_LABELS = {"عنوان", "آدرس", "آسیب‌پذیری", "آسیب پذیری", "توضیحات", "شرح", "متن"}
+_NARROW_LABELS = {"وضعیت", "تاریخ (شمسی)", "شدت", "شماره تیکت"}
+
+
+def _band_weights(labels):
+    """سهم عرض ستون‌های یک باند (درصد) بر اساس نوع برچسب."""
+    ws = []
+    for h in labels:
+        if h in _WIDE_LABELS:
+            ws.append(1.8)
+        elif h in _NARROW_LABELS:
+            ws.append(0.62)
+        else:
+            ws.append(1.0)
+    tot = sum(ws) or 1.0
+    return [round(w / tot * 100, 1) for w in ws]
+
+
+def report_print_tables(header, rows, acts):
+    """چیدمان جداول چاپ: به‌جای یک جدول عریضِ اجتماعِ همه حوزه‌ها (که از کاغذ
+    بیرون می‌زد و ستون‌ها را له می‌کرد)، برای هر حوزه جدول مجزا با ستون‌های
+    خودش و در باند‌های حداکثر ~۸ ستونه؛ فیلدهای متن‌بلدر (textarea) هرکدام
+    جدول دوسطونهٔ جدا. خروجی: (خلاصه|None, لیست گروه‌ها)"""
+    db = get_db()
+    base_n = len(BASE_COLS) if header[:len(BASE_COLS)] == BASE_COLS else len(header)
+    names = []
+    for a in acts:
+        dn = a["domain_name"] if "domain_name" in a.keys() else ""
+        if dn not in names:
+            names.append(dn)
+    lbl_info = {}
+    if names:
+        ph = ",".join("?" * len(names))
+        for rr in db.execute(f"""SELECT d.name dn, f.label, f.field_type, f.section
+                                 FROM form_fields f JOIN domains d ON d.id=f.domain_id
+                                 WHERE d.name IN ({ph}) AND f.is_active=1
+                                 ORDER BY d.sort_order, f.sort_order, f.id""",
+                             names):
+            lbl_info.setdefault(rr["dn"], []).append(
+                (rr["label"], rr["field_type"], rr["section"] or ""))
+    summary = None
+    if len(names) > 1 and base_n == len(BASE_COLS):
+        summary = {"header": header[:base_n], "rows": [r[:base_n] for r in rows],
+                   "weights": _band_weights(header[:base_n])}
+    try:
+        idc = header.index("عنوان")
+    except ValueError:
+        idc = 0
+
+    def _mk_band(cap, idxs):
+        return {"caption": cap, "header": [header[i] for i in idxs],
+                "rows": [[r[i] for i in idxs] for r in drows],
+                "weights": _band_weights([header[i] for i in idxs])}
+
+    groups = []
+    for dn in names:
+        drows = [r for r, a in zip(rows, acts)
+                 if ("domain_name" in a.keys() and a["domain_name"] == dn)]
+        if not drows:
+            continue
+        bands = []
+        if base_n:
+            bands.append(_mk_band("اطلاعات پایه", list(range(base_n))))
+        used = set()
+        short, long_cols = [], []
+        for lbl, ftype, sec in lbl_info.get(dn, []):
+            for i in range(base_n, len(header)):
+                if header[i] == lbl and i not in used:
+                    used.add(i)
+                    (long_cols if ftype == "textarea" else short).append((i, sec))
+                    break
+        # فیلدهایی که در تعریف فعلی حوزه نیستند ولی مقدار دارند
+        for i in range(base_n, len(header)):
+            if i not in used:
+                short.append((i, "")); used.add(i)
+        # خرد کردن فیلدهای کوتاه به باندهای ۷تایی — بدون عبور از مرز بخش‌ها —
+        # به انضمام ستون «عنوان» در ابتدای هر باند برای شناسایی رکورد
+        def _sec_cap(sec):
+            return ("مشخصات درخواست" if sec == SEC_REQUEST
+                    else ("مشخصات تحویل" if sec == SEC_DELIVERY else "اطلاعات اصلی"))
+        runs = []
+        for item in short:
+            if runs and runs[-1][0][1] == item[1]:
+                runs[-1].append(item)
+            else:
+                runs.append([item])
+        for run in runs:
+            for k in range(0, len(run), 7):
+                chunk = run[k:k + 7]
+                idxs = ([idc] if base_n and idc < base_n else []) + [i for i, _s in chunk]
+                bands.append(_mk_band(_sec_cap(chunk[0][1]), idxs))
+        # فیلدهای متن‌بلد: هرکدام جدول دوسطونه [عنوان، متن] — ستون متن پهن
+        for i, sec in long_cols:
+            idxs = ([idc] if base_n and idc < base_n else []) + [i]
+            _b = _mk_band(header[i], idxs)
+            if len(idxs) == 2:
+                _b["weights"] = [26.0, 74.0]
+            bands.append(_b)
+        groups.append({"name": dn, "rows_n": len(drows), "bands": bands})
+    return summary, groups
+
+
 # ------------------------------------------------------------------- داشبورد
 def dashboard_payload():
     """محاسبه داده‌های داشبورد؛ خروجی: (متغیرهای قالب، جیسون API/Vue)"""
@@ -1084,10 +1199,13 @@ def activities():
     if request.args.get("export") == "pdf":
         all_acts = query_activities(where, params)
         header, rows = export_rows(all_acts)
+        pt_summary, pt_groups = report_print_tables(header, rows, all_acts)
         return render_template("report_print.html", header=header, rows=rows,
                                title="گزارش فعالیت‌ها", charts=build_report_charts(all_acts),
                                filter_text=filters_summary(),
-                               sys_name=get_setting("system_name"), autoprint=True)
+                               back_url=url_for("activities"),
+                               pt_summary=pt_summary, pt_groups=pt_groups,
+                               sys_name=get_setting("system_name"))
 
     # همه ردیف‌های مطابق فیلتر برای جدول تعاملی Vue (جستجو/مرتب‌سازی/صفحه‌بندی سمت کلاینت)
     acts = query_activities(where, params)
@@ -1268,6 +1386,7 @@ def activity_view(activity_id):
                  for t in atts],
         "respond_action": url_for("activity_respond", activity_id=a["id"]),
         "upload_action": url_for("attachment_upload", activity_id=a["id"]),
+        "max_mb": max_upload_mb(), "accept": allowed_accept(),
         "respond_hint": bool(a["created_by"] and a["created_by"] != a["user_id"]
                              and g.user["id"] == a["user_id"]),
     }
@@ -1679,23 +1798,137 @@ def files_page():
 
 
 # --------------------------------------------------------------- خروجی Excel
+def _xl_visual_w(s):
+    """عرض تقریبی نمایش متن در اکسل (حروف فارسی ~۱.۷ برابر لاتین)."""
+    return sum(1.7 if ord(ch) > 0x600 else 1.0 for ch in s)
+
+
+def _xl_sheet_name(name, taken):
+    """نام شیت معتبر اکسل: بدون []:*?/\\ و حداکثر ۳۱ نویسه، بدون تکرار."""
+    bad = '[]:*?/\\'
+    clean = "".join("_" if ch in bad else ch for ch in str(name)).strip() or "شیت"
+    clean = clean[:28]
+    base, i = clean, 2
+    while clean in taken:
+        clean = f"{base[:25]}_{i}"
+        i += 1
+    taken.add(clean)
+    return clean
+
+
+def _xl_style_sheet(ws, header, rows, title_txt=""):
+    """رندر یک شیت استاندارد سازمانی: سربرگ فیروزه‌ای، فریز، فیلتر، راه‌راه، RTL."""
+    teal, line_c = "0F766E", "D9E2EC"
+    hdr_fill = PatternFill("solid", fgColor=teal)
+    sub_fill = PatternFill("solid", fgColor="E6F4F1")
+    zebra = PatternFill("solid", fgColor="F6F8FA")
+    thin = Side(style="thin", color=line_c)
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    ws.sheet_view.rightToLeft = True
+    ws.sheet_view.showGridLines = False
+
+    r0 = 1
+    ncols = max(len(header), 1)
+    if title_txt:
+        ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=ncols)
+        tc = ws.cell(row=1, column=1, value=title_txt)
+        tc.font = Font(name="Tahoma", size=12, bold=True, color=teal)
+        tc.alignment = Alignment(horizontal="center", vertical="center")
+        tc.fill = sub_fill
+        ws.row_dimensions[1].height = 28
+        r0 = 2
+
+    # سربرگ
+    for ci, h in enumerate(header, start=1):
+        c = ws.cell(row=r0, column=ci, value=h)
+        c.font = Font(name="Tahoma", size=10, bold=True, color="FFFFFF")
+        c.alignment = Alignment(horizontal="center", vertical="center")
+        c.fill = hdr_fill
+        c.border = border
+    ws.row_dimensions[r0].height = 24
+
+    # عرض ستون‌ها بر اساس محتوا (با احتساب پهنای فارسی)، سقف ۵۵
+    widths = [max(_xl_visual_w(str(h)) + 2.5, 9) for h in header]
+    for r in rows:
+        for i, v in enumerate(r):
+            if v is None or v == "":
+                continue
+            s = str(v)
+            widest = max(s.split("\n"), key=lambda x: _xl_visual_w(x))
+            need = min(_xl_visual_w(widest) + 2.5, 55)
+            if need > widths[i]:
+                widths[i] = need
+    for i, w in enumerate(widths, start=1):
+        ws.column_dimensions[get_column_letter(i)].width = min(max(w, 8), 55)
+
+    # داده‌ها
+    for ri, r in enumerate(rows, start=r0 + 1):
+        max_lines = 1
+        for ci, v in enumerate(r, start=1):
+            c = ws.cell(row=ri, column=ci, value=v if v != "" else None)
+            c.font = Font(name="Tahoma", size=10)
+            c.border = border
+            if ri % 2 == r0 % 2:  # راه‌راه
+                c.fill = zebra
+            s = "" if v is None else str(v)
+            wrap = "\n" in s or _xl_visual_w(s) > widths[ci - 1] - 1
+            c.alignment = Alignment(horizontal="right", vertical="top",
+                                    wrap_text=wrap)
+            if wrap:
+                eff = max(widths[ci - 1] - 2.5, 6)
+                lines = sum(max(1, int(_xl_visual_w(part) / eff) + 1)
+                            for part in s.split("\n"))
+                max_lines = max(max_lines, min(lines, 8))
+        ws.row_dimensions[ri].height = 15.5 * max_lines + 3.5
+
+    last = f"{get_column_letter(ncols)}{max(r0 + len(rows), r0 + 1)}"
+    ws.auto_filter.ref = f"A{r0}:{last}"
+    ws.freeze_panes = f"A{r0 + 1}"
+
+
 def export_excel(acts, filename="activities.xlsx", title="گزارش فعالیت‌ها",
                  override=None):
     if Workbook is None:
         flash("کتابخانه openpyxl نصب نیست.", "error")
         return redirect(url_for("activities"))
     header, rows = override if override else export_rows(acts)
+    db = get_db()
+    tj = jalali.today_jalali()
+    meta = f"{get_setting('system_name')} — {title} — تاریخ گزارش: " \
+           f"{jalali.fa('%04d/%02d/%02d' % tj)} (تعداد: {jalali.fa(len(rows))})"
+    # فهرست مرتب حوزه‌های موجود در نتیجه
+    dom_names = []
+    for a in acts:
+        dn = a["domain_name"] if "domain_name" in a.keys() else ""
+        if dn not in dom_names:
+            dom_names.append(dn)
+    base_n = len(BASE_COLS) if header[:len(BASE_COLS)] == BASE_COLS else 0
+
     wb = Workbook()
-    ws = wb.active
-    ws.title = title[:30]
-    ws.sheet_view.rightToLeft = True
-    ws.append(header)
-    for r in rows:
-        ws.append(r)
-    for col_cells in ws.columns:
-        width = max((len(str(c.value)) for c in col_cells if c.value is not None),
-                    default=8)
-        ws.column_dimensions[col_cells[0].column_letter].width = min(45, width + 4)
+    wb.remove(wb.active)
+    taken = set()
+    if len(dom_names) <= 1 or not base_n:
+        _xl_style_sheet(wb.create_sheet(_xl_sheet_name(
+            dom_names[0] if dom_names else "گزارش", taken)), header, rows, meta)
+    else:
+        # شیت ۱: خلاصه کلی (فقط ستون‌های پایه) — جدول عریض چندحوزه‌ای حذف شد
+        _xl_style_sheet(wb.create_sheet(_xl_sheet_name("خلاصه", taken)),
+                        header[:base_n], [r[:base_n] for r in rows], meta)
+        # شیت مجزا برای هر حوزه با ستون‌های مخصوص همان حوزه
+        for dn in dom_names:
+            labels = {r["label"] for r in db.execute(
+                """SELECT label FROM form_fields f JOIN domains d ON d.id=f.domain_id
+                   WHERE d.name=? AND f.is_active=1""", (dn,))}
+            keep = [i for i in range(len(header))
+                    if i < base_n or header[i] in labels]
+            d_rows = [[r[i] for i in keep]
+                      for r, a in zip(rows, acts)
+                      if ("domain_name" in a.keys() and a["domain_name"] == dn)]
+            _xl_style_sheet(wb.create_sheet(_xl_sheet_name(dn, taken)),
+                            [header[i] for i in keep], d_rows,
+                            f"{get_setting('system_name')} — گزارش «{dn}» — "
+                            f"{jalali.fa('%04d/%02d/%02d' % tj)} "
+                            f"(تعداد: {jalali.fa(len(d_rows))})")
     bio = io.BytesIO()
     wb.save(bio)
     bio.seek(0)
@@ -2295,10 +2528,13 @@ def reports():
         header, rows = export_rows(acts)
         if cols:
             header, rows = select_cols(header, rows, cols)
+        pt_summary, pt_groups = report_print_tables(header, rows, acts)
         return render_template("report_print.html", header=header, rows=rows,
                                title="گزارش فعالیت‌ها", charts=build_report_charts(acts),
                                filter_text=filters_summary(),
-                               sys_name=get_setting("system_name"), autoprint=True)
+                               back_url=url_for("reports"),
+                               pt_summary=pt_summary, pt_groups=pt_groups,
+                               sys_name=get_setting("system_name"))
     domains = db.execute("SELECT * FROM domains WHERE is_active=1 "
                          "ORDER BY sort_order, id").fetchall()
     users = db.execute("SELECT id,full_name FROM users WHERE is_active=1 "
@@ -2905,6 +3141,7 @@ def inject_globals():
                 os.path.join(UPLOAD_DIR, f"logo.{get_setting('logo_ext')}")),
             "asset_v": ASSET_V, "jalali_months": jalali.MONTH_NAMES,
             "SEC_REQUEST_NAME": SEC_REQUEST, "SEC_DELIVERY_NAME": SEC_DELIVERY,
+            "max_mb": max_upload_mb(), "allowed_accept": allowed_accept,
             "today_jalali": jalali.today_jalali(),
             "today_fa_str": jalali.fa("%04d/%02d/%02d" % jalali.today_jalali()),
             "field_options": field_options, "nav_tasks": nav_tasks,

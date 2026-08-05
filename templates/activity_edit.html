@@ -13,6 +13,7 @@
   <script type="application/json" id="aform-data">{{ {
     'mode': 'edit',
     'back_url': url_for('activity_view', activity_id=a['id']),
+    'max_mb': max_mb, 'accept': allowed_accept(),
     'fields': fields_json,
     'posted': posted,
     'vals': vals,

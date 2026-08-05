@@ -1492,3 +1492,59 @@ html[data-theme="dark"] .dash-v2 .card{border-color:rgba(148,163,184,.14);
 .la-fade{opacity:0;animation:laFade .55s ease .45s forwards}
 @media (prefers-reduced-motion:reduce){.chart-in,.ln-draw,.la-fade,.barpop{animation:none!important;stroke-dashoffset:0!important;opacity:1!important}}
 .legend .lg-it i{font-style:normal;color:var(--ink-4);font-size:11px;margin-right:3px}
+
+/* ==========================================================================
+   بازطراحی صفحه جزئیات فعالیت (ردیف‌های برچسب/مقدار مرتب + زون آپلود)
+   ========================================================================== */
+.vhead{display:flex;align-items:center;gap:12px;margin-bottom:10px}
+.vhead-t{flex:1;min-width:0}
+.vt{overflow-wrap:anywhere;line-height:1.7}
+.vd{display:flex;align-items:center;gap:6px;font-size:12px;margin-top:2px}
+.vhead .badge{flex:none}
+.vempty{padding:14px;border:1px dashed var(--line);border-radius:10px;font-size:12.5px;margin-top:6px}
+.vsec{margin-top:6px}
+.vgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:0 28px;margin-bottom:4px}
+.vrow{display:flex;align-items:baseline;gap:12px;padding:8px 2px;border-bottom:1px dashed var(--line);min-width:0}
+.vk{flex:none;min-width:100px;max-width:158px;font-size:11.5px;font-weight:600;color:var(--ink-3,#64748b);line-height:1.9}
+.vr{font-size:13px;font-weight:600;color:var(--ink-1,#1e293b);line-height:1.9;overflow-wrap:anywhere;min-width:0}
+.vr.empty{color:#c3ccd9;font-weight:400}
+.vk-big{margin-bottom:6px}
+.vbig{margin-top:10px}
+.vbox{background:#f8fafc;border:1px solid var(--line);border-radius:10px;padding:10px 14px;
+  font-size:13px;line-height:2;white-space:pre-wrap;max-height:280px;overflow:auto;overflow-wrap:anywhere}
+.vbox.empty{color:#c3ccd9;background:transparent;border-style:dashed}
+.vfilechip{display:inline-flex;align-items:center;gap:6px;background:#f0fdfa;color:#0f766e;
+  border:1px solid #99f6e4;border-radius:9px;padding:4px 12px;font-size:12.5px;font-weight:700;
+  text-decoration:none;overflow-wrap:anywhere;max-width:100%}
+.vfilechip:hover{background:#ccfbf1;text-decoration:none}
+.rlist{list-style:none;padding:0;margin:0 0 12px}
+.rlist>li{padding:10px 4px;border-bottom:1px dashed var(--line)}
+.rlist>li:last-child{border-bottom:none}
+.rhead{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px}
+.rwhen{font-size:11px;margin-right:auto}
+.rbody{font-size:13px;line-height:1.95;color:var(--ink-2,#475569)}
+.attname{overflow-wrap:anywhere}
+.upzone{margin-top:6px;border:1.5px dashed var(--line-2,#cbd5e1);border-radius:12px;background:#f8fafc;
+  padding:18px 16px;text-align:center;cursor:pointer;transition:border-color .15s,background .15s}
+.upzone:hover,.upzone.on{border-color:#14b8a6;background:#f0fdfa}
+.upzone .ic{color:#0f766e}
+.upt{font-size:13px;font-weight:700;color:var(--ink-2,#475569);margin-top:6px}
+.upt b{color:#0f766e}
+.uph{font-size:11px;color:var(--ink-3,#64748b);margin-top:2px}
+.uplist{list-style:none;margin:10px 0 0;padding:0}
+.uplist>li{display:flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid var(--line);
+  border-radius:9px;margin-bottom:6px;background:var(--panel,#fff);font-size:12.5px}
+.uplist .n{font-weight:600;overflow-wrap:anywhere;flex:1;min-width:0}
+.uplist>li.clr{border:none;background:none;padding:0;margin-top:2px}
+.uperr{display:flex;align-items:center;gap:6px;color:#b91c1c;background:#fef2f2;border:1px solid #fecaca;
+  border-radius:9px;padding:7px 12px;font-size:12px;margin-top:8px;line-height:1.8}
+html[data-theme="dark"] .vr{color:var(--ink-1)}
+html[data-theme="dark"] .vr.empty{color:#5b6b80}
+html[data-theme="dark"] .vbox{background:rgba(255,255,255,.04)}
+html[data-theme="dark"] .vbox.empty{background:transparent;color:#5b6b80}
+html[data-theme="dark"] .vfilechip{background:rgba(20,184,166,.12);color:#5eead4;border-color:rgba(45,212,191,.3)}
+html[data-theme="dark"] .vfilechip:hover{background:rgba(20,184,166,.2)}
+html[data-theme="dark"] .upzone{background:rgba(255,255,255,.03)}
+html[data-theme="dark"] .upzone:hover,html[data-theme="dark"] .upzone.on{background:rgba(20,184,166,.08);border-color:rgba(45,212,191,.5)}
+html[data-theme="dark"] .uperr{background:rgba(248,113,113,.10);border-color:rgba(248,113,113,.3);color:#fca5a5}
+html[data-theme="dark"] .rbody{color:var(--ink-2)}

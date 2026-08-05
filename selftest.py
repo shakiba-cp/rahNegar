@@ -236,9 +236,13 @@ r = c.get("/reports?export=excel")
 check("خروجی اکسل گزارش ساخته شد", r.status_code == 200
       and r.data[:2] == b"PK", r.status_code)
 _wb = load_workbook(io.BytesIO(r.data), read_only=True); _ws = _wb.active
-_hd = [c0.value for c0 in next(_ws.iter_rows(max_row=1))]
+# سربرگ = اولین ردیفی که سلول اولش «حوزه» است (ردیف ۱ عنوان گزارش شد)
+_hr = None; _hd = []
+for _i0, _row0 in enumerate(_ws.iter_rows(max_row=4), start=1):
+    if _row0 and _row0[0].value == "حوزه":
+        _hr, _hd = _i0, [c0.value for c0 in _row0]; break
 _iexp = _hd.index("کارشناس") if "کارشناس" in _hd else -1
-_exp_vals = [row[_iexp].value for row in _ws.iter_rows(min_row=2)] if _iexp >= 0 else []
+_exp_vals = [row[_iexp].value for row in _ws.iter_rows(min_row=(_hr or 1) + 1)] if _iexp >= 0 else []
 check("خروجی اکسل: ستون کارشناس = نامِ داخل فایل",
       _iexp >= 0 and "رضا کریمی" in _exp_vals, (_hd[:6], _exp_vals[:5]))
 
@@ -347,6 +351,17 @@ with A.app.app_context():
                      (dom["id"],)).fetchone()["field_key"]
 check("کلید عنوان حوزه وب: «آدرس» نه «کارفرما»", _ak == "title" and not _ck, (_ak, _ck))
 
+# کلید عنوان حوزه اندروید: «برنامه» نه «کارفرما»
+with A.app.app_context():
+    _d = A.get_db()
+    _and = _d.execute("SELECT id FROM domains WHERE name='ارزیابی امنیتی اندروید'").fetchone()["id"]
+    _bk = _d.execute("SELECT field_key FROM form_fields WHERE domain_id=? AND label='برنامه'",
+                     (_and,)).fetchone()["field_key"]
+    _ck2 = _d.execute("SELECT field_key FROM form_fields WHERE domain_id=? AND label='کارفرما'",
+                      (_and,)).fetchone()["field_key"]
+check("کلید عنوان حوزه اندروید: «برنامه» نه «کارفرما»",
+      _bk == "title" and not _ck2, (_bk, _ck2))
+
 _csv = ("تاریخ,کارشناس,کارفرما,شدت,آدرس\n"
         "1405/04/30,مدیر سامانه,سازمان csv,زیاد,https://csv.example\n").encode("utf-8-sig")
 r = c.post("/import", data={"domain_id": str(dom["id"]),
@@ -384,8 +399,8 @@ check("خروجی CSV", r.status_code == 200 and r.data.startswith(b"\xef\xbb\xb
 r = c.get("/reports?export=excel")
 check("خروجی Excel", r.data[:2] == b"PK")
 wb2 = load_workbook(io.BytesIO(r.data))
-check("ستون تاریخ شمسی در Excel", "تاریخ (شمسی)" in
-      [x.value for x in wb2.active[1]])
+_hdr_cells = [x.value for row in wb2.active.iter_rows(max_row=3) for x in row]
+check("ستون تاریخ شمسی در Excel", "تاریخ (شمسی)" in _hdr_cells)
 rows = list(wb2.active.iter_rows(values_only=True))
 check("تاریخ‌ها در خروجی شمسی‌اند", any(str(c).startswith("۱۴۰۵/") or str(c).startswith("1405/")
       for row in rows[1:] for c in row if c), rows[1] if len(rows) > 1 else None)
@@ -496,19 +511,50 @@ check("گزارش کارشناس فقط مال خودش", "بانک الف".enco
 c.get("/logout"); login("admin", "admin123")
 r = c.get("/reports?export=excel")
 wb3 = load_workbook(io.BytesIO(r.data))
-hdrs = [x.value for x in wb3.active[1]]
+def _xh(wb):
+    """سربرگ هر شیت = اولین ردیف با سلول اول «حوزه» (ردیف ۱ عنوان گزارش است)."""
+    out = []
+    for nm in wb.sheetnames:
+        for row in wb[nm].iter_rows(max_row=3, values_only=True):
+            if row and row[0] == "حوزه":
+                out.append((nm, [x for x in row if x is not None])); break
+    return out
+_sheets = _xh(wb3)
+hdrs_all = [h for _n, hs in _sheets for h in hs]
 check("خروجی شناسه سیستمی (id دیتابیس) ندارد",
-      not any(h in ("id", "شناسه سیستمی") for h in hdrs), hdrs)
-check("تیکت فقط یک ستون", hdrs.count("شماره تیکت") == 1, hdrs)
-check("همه فیلدها در خروجی‌اند", "زمان درخواست" in hdrs and "آسیب پذیری" in hdrs, hdrs)
+      not any(h in ("id", "شناسه سیستمی") for h in hdrs_all), hdrs_all[:12])
+check("تیکت فقط یک ستون",
+      _sheets and all(hs.count("شماره تیکت") == 1 for _n, hs in _sheets),
+      [n for n, _ in _sheets])
+check("همه فیلدها در خروجی‌اند",
+      "زمان درخواست" in hdrs_all and "آسیب پذیری" in hdrs_all, hdrs_all[:20])
+check("خروجی تک‌حوزه‌ای: شیت به نام همان حوزه",
+      wb3.sheetnames and wb3.sheetnames[0] == "ارزیابی امنیتی وب", wb3.sheetnames)
 
 # ---------- انتخاب ستون خروجی توسط مدیر
 r = c.get("/reports", query_string=[("export", "excel"), ("col", "حوزه"), ("col", "وضعیت")])
 wb4 = load_workbook(io.BytesIO(r.data))
-hdrs2 = [x.value for x in wb4.active[1]]
-check("انتخاب ستون خروجی مدیر", hdrs2 == ["حوزه", "وضعیت"], hdrs2)
+hdrs2 = _xh(wb4)[0][1] if _xh(wb4) else []
+check("انتخاب ستون خروجی مدیر", hdrs2[:2] == ["حوزه", "وضعیت"], hdrs2)
 r = c.get("/reports")
 check("کارت انتخاب ستون برای مدیر", "ستون‌های خروجی".encode() in r.data)
+
+# پوشش خروجی چندحوزه‌ای: یک فعالیت در حوزه دوم (کپی دیتابیسی) سپس خروجی
+with A.app.app_context():
+    _dbx = A.get_db()
+    _d2 = _dbx.execute(
+        "SELECT id FROM domains WHERE name='استخراج IP آسیب پذیر'").fetchone()["id"]
+    _dbx.execute("""INSERT INTO activities (domain_id, user_id, status, title, ticket,
+                        date, created_at, updated_at)
+                    SELECT ?, user_id, status, 'نمونه حوزه دوم', ticket, date,
+                           created_at, updated_at
+                    FROM activities ORDER BY id LIMIT 1""", (_d2,))
+    _dbx.commit()
+r = c.get("/reports?export=excel")
+wb3b = load_workbook(io.BytesIO(r.data))
+check("خروجی چندحوزه‌ای: شیت خلاصه + شیت مجزای هر حوزه",
+      "خلاصه" in wb3b.sheetnames and len(wb3b.sheetnames) >= 3
+      and "استخراج IP آسیب پذیر" in wb3b.sheetnames, wb3b.sheetnames)
 
 # ---------- تیکت در فرم اصلی استخراج IP (نه فقط بخش تحویل)
 with A.app.app_context():
@@ -612,7 +658,7 @@ check("افزودن فیلد «شناسه» به حوزه وب", "فیلد اف�
 r = c.get(f"/reports?domain={_web['id']}&export=excel")
 check("خروجی اکسل حوزه وب", r.status_code == 200 and r.data[:2] == b"PK", r.status_code)
 _wb = load_workbook(io.BytesIO(r.data), read_only=True); _ws = _wb.active
-_hd = [c0.value for c0 in next(_ws.iter_rows(max_row=1))]
+_hd = _xh(_wb)[0][1] if _xh(_wb) else []
 check("ستون «شناسه» در خروجی هست (حتی بدون مقدار)", "شناسه" in _hd, _hd)
 check("ستون «وضعیت آسیب‌پذیری» در خروجی هست", "وضعیت آسیب‌پذیری" in _hd, _hd)
 
@@ -629,7 +675,7 @@ with A.app.app_context():
 r = c.get(f"/reports?domain={_mz}&export=excel")
 check("خروجی اکسل حوزه بدافزار", r.status_code == 200 and r.data[:2] == b"PK", r.status_code)
 _wb2 = load_workbook(io.BytesIO(r.data), read_only=True); _ws2 = _wb2.active
-_hd2 = [c0.value for c0 in next(_ws2.iter_rows(max_row=1))]
+_hd2 = _xh(_wb2)[0][1] if _xh(_wb2) else []
 check("ستون «شماره تیکت» برای حوزهٔ بدون تیکت حذف شد",
       "شماره تیکت" not in _hd2, _hd2)
 

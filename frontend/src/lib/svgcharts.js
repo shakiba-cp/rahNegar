@@ -124,7 +124,9 @@ export function lineSVG(data, uid) {
   const ticks = niceTicks(Math.max(...data.map(d => d.value), 1));
   const max = ticks[ticks.length - 1];
   const n = data.length || 1, sx = (W - P.l - P.r) / Math.max(n - 1, 1), plotH = H - P.t - P.b;
-  const many = n > 14;
+  /* فاصله برچسب محور X: تا ۱۴ نقطه همه؛ بیشتر → حداکثر ~۱۲ برچسب با گام یکنواخت
+     (ماه‌های فرد/زودتر نشان داده می‌شدند و محور به‌هم‌ریخته به نظر می‌رسید) */
+  const tickEvery = n > 14 ? Math.ceil(n / 12) : 1;
   const grid = _v('--line') || '#eef1f5', axis = _v('--line-2') || '#e2e8f0',
         i3 = _v('--ink-3') || '#64748b', i4 = _v('--ink-4') || '#94a3b8',
         panel = _v('--panel') || '#fff', ink1 = _v('--ink-1') || '#1e293b';
@@ -171,7 +173,7 @@ export function lineSVG(data, uid) {
       const ly = p[1] - 13 < P.t + 2 ? p[1] + 22 : p[1] - 13;
       s += `<text x="${p[0]}" y="${ly}" font-size="12.5" font-weight="700" fill="#0F766E" text-anchor="middle">${fa(mv)}</text>`;
     }
-    if (!(many && i % 2)) {
+    if (i % tickEvery === 0) {
       const _lp = String(data[i].label).split(' ');
       s += `<text x="${p[0]}" y="${H - P.b + 17}" font-size="10.5" fill="${i3}" text-anchor="middle">${_lp[0]}</text>`;
     }
