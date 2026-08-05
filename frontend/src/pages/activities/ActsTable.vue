@@ -142,9 +142,9 @@ export default {
         <input v-model="q" type="text" placeholder="جستجو در عنوان، تیکت، کارشناس...">
       </div>
       <span class="mute fs11" v-if="q">{{ fa(filtered.length) }} نتیجه</span>
-      <button type="button" class="chip" :class="{on: onlyFix}" v-if="fixCount"
+      <button type="button" class="fixf" :class="{on: onlyFix}" v-if="fixCount"
               @click="onlyFix = !onlyFix" :title="'نمایش فقط ' + fa(fixCount) + ' فعالیتِ نیازمند اصلاح'">
-        <svg class="ic i13"><use href="#i-alert"/></svg> نیازمند اصلاح ({{ fa(fixCount) }})
+        <svg class="ic i13"><use href="#i-alert"/></svg> نیازمند اصلاح <b class="n">{{ fa(fixCount) }}</b>
       </button>
       <button type="button" class="btn ghost icon sm" id="eye-status"
               :title="show.status ? 'پنهان‌کردن ستون وضعیت' : 'نمایش ستون وضعیت'"

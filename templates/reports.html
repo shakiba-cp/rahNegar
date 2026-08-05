@@ -5,6 +5,11 @@
 {% block content %}
 <div class="card">
   <form class="filters" method="get">
+    <div class="f sm"><label>مرکز</label>
+      <select name="org">
+        <option value="">همه مراکز</option>
+        {% for o in orgs %}<option value="{{ o['id'] }}" {{ 'selected' if request.args.get('org')|int == o['id'] }}>{{ o['name'] }}</option>{% endfor %}
+      </select></div>
     <div class="f sm"><label>حوزه</label>
       <select name="domain">
         <option value="">همه حوزه‌ها</option>

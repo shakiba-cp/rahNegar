@@ -202,7 +202,7 @@ DOMAIN_FIELDS = {
 
 app = Flask(__name__)
 # نسخه دارایی‌های استاتیک برای شکستن کش مرورگر بعد از هر آپدیت (cache-busting)
-ASSET_V = "6.0.1"
+ASSET_V = "6.2.0"
 app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
 # تقویت امنیت کوکی نشست — Secure را هنگام HTTPS با متغیر محیطی SECURE_COOKIE=1 فعال کنید
 app.config["SESSION_COOKIE_HTTPONLY"] = True
@@ -255,9 +255,17 @@ CREATE TABLE IF NOT EXISTS users(
   full_name TEXT NOT NULL,
   role TEXT NOT NULL DEFAULT 'expert',
   is_active INTEGER NOT NULL DEFAULT 1,
+  aliases TEXT NOT NULL DEFAULT '',
   created_at TEXT
 );
 CREATE TABLE IF NOT EXISTS domains(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT UNIQUE NOT NULL,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  is_active INTEGER NOT NULL DEFAULT 1,
+  org_id INTEGER
+);
+CREATE TABLE IF NOT EXISTS orgs(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT UNIQUE NOT NULL,
   sort_order INTEGER NOT NULL DEFAULT 0,
@@ -365,6 +373,17 @@ def init_db():
                  "allowed_formats": DEFAULT_FORMATS}.items():
         if get_setting(k) is None or get_setting(k) == "":
             set_setting(k, v)
+    # مراکز (هر مرکز حوزه‌های مستقل خود را دارد) — افزودنی و سازگار با دیتابیس‌های قدیمی
+    for _i, _nm in enumerate(["ماهر", "کاشف", "فیدار"], start=1):
+        if not db.execute("SELECT 1 FROM orgs WHERE name=?", (_nm,)).fetchone():
+            db.execute("INSERT INTO orgs(name,sort_order) VALUES(?,?)", (_nm, _i))
+    if "org_id" not in [r[1] for r in db.execute("PRAGMA table_info(domains)")]:
+        db.execute("ALTER TABLE domains ADD COLUMN org_id INTEGER")
+    _mah = db.execute("SELECT id FROM orgs WHERE name='ماهر'").fetchone()["id"]
+    db.execute("UPDATE domains SET org_id=? WHERE org_id IS NULL", (_mah,))
+    # نام‌های مستعار کارشناسان (برای یکدست‌سازی نام در نمودارها/گزارش‌ها)
+    if "aliases" not in [r[1] for r in db.execute("PRAGMA table_info(users)")]:
+        db.execute("ALTER TABLE users ADD COLUMN aliases TEXT NOT NULL DEFAULT ''")
     if not db.execute("SELECT 1 FROM users WHERE username='admin'").fetchone():
         db.execute("INSERT INTO users(username,password_hash,full_name,role,created_at) "
                    "VALUES(?,?,?,?,?)",
@@ -372,7 +391,8 @@ def init_db():
                     "admin", now_iso()))
     if not db.execute("SELECT 1 FROM domains LIMIT 1").fetchone():
         for i, name in enumerate(DOMAIN_FIELDS, start=1):
-            cur = db.execute("INSERT INTO domains(name,sort_order) VALUES(?,?)", (name, i))
+            cur = db.execute("INSERT INTO domains(name,sort_order,org_id) VALUES(?,?,?)",
+                             (name, i, _mah))
             main_fields = [list(f) for f in DOMAIN_FIELDS[name]]
             if not any(f[2] == "ticket" for f in main_fields):
                 main_fields.append(("شماره تیکت", "text", "ticket", [], 0, ""))
@@ -699,6 +719,10 @@ def build_filters():
     if dom:
         where.append("a.domain_id=?")
         params.append(dom)
+    org = args.get("org", type=int)
+    if org:
+        where.append("a.domain_id IN (SELECT id FROM domains WHERE org_id=?)")
+        params.append(org)
     status = args.get("status", "")
     if status in STATUSES:
         where.append("a.status=?")
@@ -785,6 +809,11 @@ def filters_summary(module="reports"):
         d = db.execute("SELECT name FROM domains WHERE id=?", (dom,)).fetchone()
         if d:
             parts.append(f"حوزه: {d['name']}")
+    org = args.get("org", type=int)
+    if org:
+        o = db.execute("SELECT name FROM orgs WHERE id=?", (org,)).fetchone()
+        if o:
+            parts.append(f"مرکز: {o['name']}")
     if args.get("expert") and g.user["role"] == "admin":
         u = db.execute("SELECT full_name FROM users WHERE id=?",
                        (args.get("expert", type=int),)).fetchone()
@@ -848,7 +877,7 @@ def export_rows(acts):
     for a in acts:
         vals = fields_map.get(a["id"], {})
         row = [a["domain_name"], a["title"] or "",
-               (a["expert_txt"] or a["expert_name"]) if "expert_txt" in a.keys() else a["expert_name"],
+               _canon_expert((a["expert_txt"] or a["expert_name"]) if "expert_txt" in a.keys() else a["expert_name"]),
                a["status"],
                jalali.fa(jalali.g_str_to_j(a["date"])) if a["date"] else "",
                a["ticket"] or ""]
@@ -940,8 +969,17 @@ def dashboard_payload():
                      JOIN form_fields ff ON ff.id=v.field_id AND ff.field_key='expert'
                      WHERE v.activity_id=a.id LIMIT 1)), ''), u.full_name) AS n
             FROM activities a JOIN users u ON u.id=a.user_id WHERE 1=1 {mine}
-        ) WHERE n NOT IN (SELECT full_name FROM users WHERE role='admin')
-        GROUP BY n ORDER BY c DESC, n LIMIT 15""", mp).fetchall()
+        ) GROUP BY n""", mp).fetchall()
+    # ادغام نام‌های ناهماهنگ («رضایی» با «علی رضایی») پیش از ترسیم نمودار
+    _admin_names = {r["full_name"] for r in
+                    db.execute("SELECT full_name FROM users WHERE role='admin'")}
+    _mrg = {}
+    for _r in per_expert:
+        _cn = _canon_expert(_r["n"])
+        if _cn in _admin_names:
+            continue
+        _mrg[_cn] = _mrg.get(_cn, 0) + _r["c"]
+    per_expert = sorted(_mrg.items(), key=lambda kv: (-kv[1], kv[0]))[:15]
     last_acts = db.execute(f"""
         SELECT a.*, d.name domain_name, u.full_name expert_name FROM activities a
         JOIN domains d ON d.id=a.domain_id JOIN users u ON u.id=a.user_id
@@ -967,7 +1005,7 @@ def dashboard_payload():
                                                if r["status"] == s), 0)}
                    for s in STATUSES],
         "monthly": months,
-        "experts": [{"label": r["n"], "value": r["c"]} for r in per_expert],
+        "experts": [{"label": n, "value": c} for n, c in per_expert],
     }
     today = jalali.today_jalali()
     tv = {"charts": charts, "total": total, "this_month": this_month,
@@ -1039,7 +1077,7 @@ def activities():
         "title": a["title"] or "بدون عنوان",
         "domain": a["domain_name"],
         "icon": domain_icon(a["domain_name"]),
-        "expert": (a["expert_txt"] or a["expert_name"]),
+        "expert": _canon_expert(a["expert_txt"] or a["expert_name"]),
         "flagged": a["flagged"] if "flagged" in a.keys() else 0,
         "status": a["status"],
         "date": _jdate(a["date"]) if a["date"] else "—",
@@ -1051,11 +1089,14 @@ def activities():
         "edit": url_for("activity_edit", activity_id=a["id"]),
         "delete": url_for("activity_delete", activity_id=a["id"]),
     } for a in acts]
-    flt_domains = [{"id": d["id"], "name": d["name"]} for d in domains]
+    flt_domains = [{"id": d["id"], "name": d["name"], "org_id": d["org_id"] or 0}
+                   for d in domains]
     flt_users = [{"id": u["id"], "full_name": u["full_name"]} for u in users]
+    orgs = get_db().execute("SELECT * FROM orgs ORDER BY sort_order, id").fetchall()
     return render_template("activities.html", acts=acts, acts_json=acts_json,
                            total=total, domains=domains, flt_domains=flt_domains,
-                           flt_users=flt_users,
+                           flt_users=flt_users, orgs=orgs,
+                           orgs_json=[{"id": o["id"], "name": o["name"]} for o in orgs],
                            bulk_statuses=(STATUSES if g.user["role"] == "admin"
                                           else EXPERT_STATUSES),
                            users=users, statuses=STATUSES)
@@ -1066,12 +1107,14 @@ def activities():
 def activity_new():
     db = get_db()
     domain_id = request.values.get("domain_id", type=int)
-    domains = db.execute("SELECT * FROM domains WHERE is_active=1 "
-                         "ORDER BY sort_order, id").fetchall()
+    domains = db.execute("""SELECT d.*, o.name org_name FROM domains d
+                            LEFT JOIN orgs o ON o.id=d.org_id
+                            WHERE d.is_active=1
+                            ORDER BY COALESCE(o.sort_order,99), d.sort_order, d.id""").fetchall()
     if not domain_id:
         return render_template(
             "activity_new.html", domains=domains, domain=None, icons=DOMAIN_ICONS,
-            domains_json=[{"id": d["id"], "name": d["name"],
+            domains_json=[{"id": d["id"], "name": d["name"], "org": d["org_name"] or "سایر",
                            "icon": domain_icon(d["name"])} for d in domains])
     domain = get_domain_or_404(domain_id)
     if not domain["is_active"]:
@@ -1182,7 +1225,7 @@ def activity_view(activity_id):
     view_json = {
         "title": a["title"] or "بدون عنوان",
         "domain": a["domain_name"], "icon": domain_icon(a["domain_name"]),
-        "status": a["status"], "expert": (a["expert_txt"] or a["expert_name"]) if "expert_txt" in a.keys() else a["expert_name"],
+        "status": a["status"], "expert": _canon_expert((a["expert_txt"] or a["expert_name"]) if "expert_txt" in a.keys() else a["expert_name"]),
         "creator": creator["full_name"] if creator else "",
         "flagged": bool(a["flagged"]) if "flagged" in a.keys() else False,
         "date_fa": _jdate(a["date"]) if a["date"] else "",
@@ -1644,6 +1687,85 @@ def _norm_person(s):
     return re.sub(r"[\s‌​‎‏\-_ـ]+", "", s).replace("ي", "ی").replace("ك", "ک")
 
 
+def _canon_build(db):
+    """داده‌های لازم برای یکدست‌سازی نام کارشناس (یک بار در هر درخواست ساخته می‌شود):
+    نام‌های کامل = کاربران فعال + نام‌های کارشناسِ ثبت‌شده در داده‌ها؛ نام‌های مستعار کاربران."""
+    fulls, user_fns, alias = [], [], {}
+    for r in db.execute("SELECT full_name, aliases FROM users WHERE is_active=1"):
+        fn = (r["full_name"] or "").strip()
+        if fn:
+            user_fns.append(fn)
+            if fn not in fulls:
+                fulls.append(fn)
+            for al in re.split(r"[,،;\n]+", r["aliases"] or ""):
+                al = al.strip()
+                if al:
+                    alias[_norm_person(al)] = fn
+    for r in db.execute("""SELECT DISTINCT TRIM(v.value) n FROM activity_values v
+                           JOIN form_fields ff ON ff.id=v.field_id AND ff.field_key='expert'
+                           WHERE TRIM(v.value)<>''"""):
+        n = r["n"]
+        if n and n not in fulls:
+            fulls.append(n)
+    return {"user_norms": {_norm_person(f): f for f in user_fns},
+            "norms": {f: _norm_person(f) for f in fulls}, "alias": alias, "memo": {}}
+
+
+_NAME_SPLIT_RE = re.compile(r"[،,;/؛\|\n]|\s+و\s+")
+
+
+def _name_parts(name):
+    """تجزیه سلول کارشناس به بخش‌ها (جداکننده: «،» «،» «/» «؛» «|» خط جدید یا « و »)."""
+    return [p.strip() for p in _NAME_SPLIT_RE.split(name) if p.strip()]
+
+
+def _canon_one(name, c):
+    """یکدست‌سازی «یک» نام کارشناس بر اساس داده‌های کش:
+    ۱) نظیر دقیقِ نام یک کاربر  ۲) نام مستعار تعریف‌شده برای کاربر
+    ۳) پسوندِ یکتای یک نام کاملِ «تک‌نفره» (مثل «رضایی» ← «علی رضایی») — فقط اگر مبهم نباشد
+    ۴) واریانت املاییِ دقیقِ یک نام موجود (ی/ک عربی، نیم‌فاصله...)"""
+    n = _norm_person(name)
+    out = c["user_norms"].get(n)
+    if out is None:
+        out = c["alias"].get(n)
+    if out is None:
+        ms = [f for f, nf in c["norms"].items()
+              if nf != n and nf.endswith(n) and len(_name_parts(f)) == 1]
+        # ابهام بر اساس «مقصد یکتا» سنجیده می‌شود: دو املای یک نام یا نام مستعارِ آن
+        # (مثل «علی‌ رضایی» و «ع.رضایی» ← «علی رضایی») مبهم نیستند
+        tgts = sorted({c["user_norms"].get(c["norms"][f]) or c["alias"].get(c["norms"][f]) or f
+                       for f in ms})
+        if len(tgts) == 1:
+            out = tgts[0]
+    if out is None:
+        for f, nf in c["norms"].items():
+            if nf == n and f != name:
+                out = f
+                break
+    return out if out is not None else name
+
+
+def _canon_expert(name):
+    """نام نمایشی کارشناس را یکدست می‌کند تا در نمودار/گزارش دو بار نیاید.
+    اگر چند نام در یک سلول باشد (با «،» «و» «/» «؛» یا خط جدید)، هر بخش جداگانه
+    یکدست می‌شود، جداکننده‌ها یکسان («، ») و بخش‌های تکراری حذف می‌شوند."""
+    name = (name or "").strip()
+    if not name:
+        return name
+    c = getattr(g, "_canon_cache", None)
+    if c is None:
+        c = g._canon_cache = _canon_build(get_db())
+    if name in c["memo"]:
+        return c["memo"][name]
+    parts = _name_parts(name)
+    if len(parts) > 1:
+        out = "، ".join(dict.fromkeys(_canon_one(p, c) for p in parts))
+    else:
+        out = _canon_one(name, c)
+    c["memo"][name] = out
+    return out
+
+
 def _cell_text(raw):
     """متن تمیز یک سلول اکسل؛ اعداد عددیِ بدون اعشار (مثل 4321.0) صحیح برمی‌گردند."""
     if raw is None:
@@ -1788,9 +1910,12 @@ def _process_excel(domain, data, filename, dup_mode="ask"):
                      f"همهٔ ردیف‌ها به نام شما ثبت شدند. برای ثبت به نام کارشناس هر ردیف، "
                      f"ستونی با همین نام به فایل اضافه کنید.")
     users_by_name = {}
-    for r in db.execute("SELECT id, username, full_name FROM users WHERE is_active=1"):
+    for r in db.execute("SELECT id, username, full_name, aliases FROM users WHERE is_active=1"):
         users_by_name[_norm_person(r["full_name"])] = r["id"]
         users_by_name.setdefault(_norm_person(r["username"]), r["id"])
+        for _al in re.split(r"[,،;\n]+", r["aliases"] or ""):
+            if _al.strip():
+                users_by_name.setdefault(_norm_person(_al.strip()), r["id"])
     for idx, r in enumerate(rows[1:], start=2):
         if all(c is None or str(c).strip() == "" for c in r):
             total -= 1
@@ -1835,6 +1960,10 @@ def _process_excel(domain, data, filename, dup_mode="ask"):
         if g.user["role"] != "admin" and status == "بررسی شده":
             status = STATUSES[1]
         # نگاشت کارشناس ردیف به کاربر سامانه — پیش‌فرض: خودِ آپلودکننده
+        # یکدست‌سازی نام کارشناسِ ثبت‌شده («رضایی» ← «علی رضایی» اگر یکتا باشد)
+        # تا از همان ابتدا در آمار و نمودارها دو بار نیاید
+        if expert_fid is not None and record.get(expert_fid):
+            record[expert_fid] = _canon_expert(record[expert_fid])
         # نکته: نام کارشناسِ داخل فایل به‌هر‌حال در فیلد «کارشناس» ثبت می‌شود و همان
         # در همهٔ نماها (لیست/جزئیات/خروجی/نمودار) نمایش داده می‌شود؛ مالکیت فقط برای
         # سطح دسترسی است و وقتی کاربرِ نظیر در سامانه نیست، به آپلودکننده می‌رسد.
@@ -2069,7 +2198,7 @@ def reports():
         "title": a["title"] or "بدون عنوان",
         "domain": a["domain_name"],
         "icon": domain_icon(a["domain_name"]),
-        "expert": (a["expert_txt"] or a["expert_name"]) if "expert_txt" in a.keys() else a["expert_name"],
+        "expert": _canon_expert((a["expert_txt"] or a["expert_name"]) if "expert_txt" in a.keys() else a["expert_name"]),
         "status": a["status"],
         "date": _jdate(a["date"]) if a["date"] else "—",
         "date_key": a["date"] or "",
@@ -2077,9 +2206,10 @@ def reports():
         "atts": a["att_count"] or 0,
         "view": url_for("activity_view", activity_id=a["id"]),
     } for a in acts]
+    orgs = db.execute("SELECT * FROM orgs ORDER BY sort_order, id").fetchall()
     return render_template("reports.html", acts=acts, total=total, domains=domains,
                            users=users, export_headers=export_headers,
-                           acts_json=acts_json)
+                           acts_json=acts_json, orgs=orgs)
 
 
 # --------------------------------------------------------------------- کاربران
@@ -2194,6 +2324,7 @@ def user_new():
     if request.method == "POST":
         username = request.form.get("username", "").strip()
         full_name = request.form.get("full_name", "").strip()
+        aliases = request.form.get("aliases", "").strip()
         role = request.form.get("role", "expert")
         password = request.form.get("password", "")
         is_trainee = 1 if request.form.get("is_trainee") else 0
@@ -2215,10 +2346,10 @@ def user_new():
         else:
             db.execute("INSERT INTO users(username,password_hash,full_name,role,"
                        "is_trainee,supervisor_id,can_add,can_edit,can_delete,can_import,"
-                       "created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                       "aliases,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
                        (username, generate_password_hash(password), full_name, role,
                         is_trainee, sup_id, perms["can_add"], perms["can_edit"],
-                        perms["can_delete"], perms["can_import"], now_iso()))
+                        perms["can_delete"], perms["can_import"], aliases, now_iso()))
             db.commit()
             flash("کاربر ایجاد شد.", "success")
             return redirect(url_for("users"))
@@ -2237,6 +2368,7 @@ def user_edit(user_id):
         abort(404)
     if request.method == "POST":
         full_name = request.form.get("full_name", "").strip()
+        aliases = request.form.get("aliases", u["aliases"] or "").strip()
         role = request.form.get("role", u["role"])
         password = request.form.get("password", "")
         is_self = user_id == g.user["id"]
@@ -2251,8 +2383,8 @@ def user_edit(user_id):
         elif is_trainee and request.form.get("supervisor_id") and not sup_id:
             flash("سرپرست انتخاب‌شده معتبر نیست.", "error")
         else:
-            db.execute("UPDATE users SET full_name=?, role=? WHERE id=?",
-                       (full_name, role, user_id))
+            db.execute("UPDATE users SET full_name=?, role=?, aliases=? WHERE id=?",
+                       (full_name, role, aliases, user_id))
             if not is_self and request.form.get("perm_form"):
                 # نوع حساب، سرپرست و مجوزها (حساب خود مدیر و پست‌های قدیمی مستثنا)
                 db.execute("UPDATE users SET is_trainee=?, supervisor_id=?, can_add=?,"
@@ -2359,17 +2491,28 @@ def domains_page():
         elif db.execute("SELECT 1 FROM domains WHERE name=?", (name,)).fetchone():
             flash("حوزه‌ای با این نام وجود دارد.", "error")
         else:
+            org_id = request.form.get("org_id", type=int)
+            if not org_id or not db.execute("SELECT 1 FROM orgs WHERE id=?", (org_id,)).fetchone():
+                org_id = db.execute("SELECT id FROM orgs ORDER BY sort_order, id LIMIT 1").fetchone()["id"]
             mx = db.execute("SELECT COALESCE(MAX(sort_order),0) m FROM domains").fetchone()["m"]
-            db.execute("INSERT INTO domains(name,sort_order) VALUES(?,?)", (name, mx + 1))
+            db.execute("INSERT INTO domains(name,sort_order,org_id) VALUES(?,?,?)",
+                       (name, mx + 1, org_id))
             db.commit()
             flash("حوزه جدید افزوده شد. از «مدیریت فیلدها» فیلدهای آن را تعریف کنید.", "success")
         return redirect(url_for("domains_page"))
-    rows = db.execute("""SELECT d.*, (SELECT COUNT(*) FROM activities a WHERE a.domain_id=d.id) act_count,
+    rows = db.execute("""SELECT d.*, o.name org_name,
+        (SELECT COUNT(*) FROM activities a WHERE a.domain_id=d.id) act_count,
         (SELECT COUNT(*) FROM form_fields f WHERE f.domain_id=d.id AND f.is_active=1) field_count
-        FROM domains d ORDER BY d.sort_order, d.id""").fetchall()
+        FROM domains d LEFT JOIN orgs o ON o.id=d.org_id
+        ORDER BY COALESCE(o.sort_order,99), d.sort_order, d.id""").fetchall()
+    orgs = db.execute("SELECT * FROM orgs ORDER BY sort_order, id").fetchall()
+    org_counts = {}
+    for _d in rows:
+        org_counts[_d["org_id"]] = org_counts.get(_d["org_id"], 0) + 1
     # داده JSON برای جدول تعاملی Vue 3 (افزودنی)
     domains_json = [{
         "id": d["id"], "name": d["name"], "icon": domain_icon(d["name"]),
+        "org": d["org_name"] or "—", "org_id": d["org_id"] or 0,
         "field_count": d["field_count"], "act_count": d["act_count"],
         "is_active": bool(d["is_active"]),
         "edit": url_for("domain_edit", domain_id=d["id"]),
@@ -2377,8 +2520,10 @@ def domains_page():
         "delete": url_for("domain_delete", domain_id=d["id"]),
         "fields": url_for("fields_page", domain_id=d["id"]),
     } for d in rows]
+    orgs_json = [{"id": o["id"], "name": o["name"]} for o in orgs]
     return render_template("domains.html", domains=rows, icons=DOMAIN_ICONS,
-                           domains_json=domains_json)
+                           domains_json=domains_json, orgs=orgs, orgs_json=orgs_json,
+                           org_counts=org_counts)
 
 
 @app.route("/domains/<int:domain_id>/edit", methods=["POST"])
@@ -2394,7 +2539,47 @@ def domain_edit(domain_id):
         db.execute("UPDATE domains SET name=? WHERE id=?", (name, domain_id))
         db.commit()
         flash("حوزه ویرایش شد.", "success")
+    org_id = request.form.get("org_id", type=int)
+    if org_id and org_id != d["org_id"] and db.execute(
+            "SELECT 1 FROM orgs WHERE id=?", (org_id,)).fetchone():
+        db.execute("UPDATE domains SET org_id=? WHERE id=?", (org_id, domain_id))
+        db.commit()
+        flash("مرکز حوزه تغییر کرد.", "success")
     return redirect(request.referrer or url_for("domains_page"))
+
+
+@app.route("/orgs/add", methods=["POST"])
+@admin_required
+def org_add():
+    name = request.form.get("name", "").strip()
+    db = get_db()
+    if not name:
+        flash("نام مرکز الزامی است.", "error")
+    elif db.execute("SELECT 1 FROM orgs WHERE name=?", (name,)).fetchone():
+        flash("مرکزی با این نام وجود دارد.", "error")
+    else:
+        mx = db.execute("SELECT COALESCE(MAX(sort_order),0) m FROM orgs").fetchone()["m"]
+        db.execute("INSERT INTO orgs(name,sort_order) VALUES(?,?)", (name, mx + 1))
+        db.commit()
+        flash("مرکز جدید افزوده شد — حالا می‌توانید برایش حوزه بسازید.", "success")
+    return redirect(url_for("domains_page"))
+
+
+@app.route("/orgs/<int:org_id>/delete", methods=["POST"])
+@admin_required
+def org_delete(org_id):
+    db = get_db()
+    o = db.execute("SELECT * FROM orgs WHERE id=?", (org_id,)).fetchone()
+    if not o:
+        abort(404)
+    if db.execute("SELECT 1 FROM domains WHERE org_id=? LIMIT 1", (org_id,)).fetchone():
+        flash("این مرکز حوزه دارد و قابل حذف نیست — ابتدا حوزه‌هایش را به مرکز دیگر منتقل کنید.",
+              "error")
+    else:
+        db.execute("DELETE FROM orgs WHERE id=?", (org_id,))
+        db.commit()
+        flash(f"مرکز «{o['name']}» حذف شد.", "success")
+    return redirect(url_for("domains_page"))
 
 
 @app.route("/domains/<int:domain_id>/toggle", methods=["POST"])

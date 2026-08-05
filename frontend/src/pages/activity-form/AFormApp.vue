@@ -17,6 +17,15 @@ export default {
       const ds = this.p.domains || [];
       return q ? ds.filter(d => d.name.includes(q)) : ds;
     },
+    orgGroups() {
+      const gs = new Map();
+      for (const d of this.filteredDomains) {
+        const o = d.org || 'سایر';
+        if (!gs.has(o)) gs.set(o, []);
+        gs.get(o).push(d);
+      }
+      return Array.from(gs, ([org, items]) => ({ org, items }));
+    },
     sections() {
       const groups = new Map();
       for (const f of (this.p.fields || [])) {
@@ -71,14 +80,19 @@ export default {
           <input v-model="q" type="text" placeholder="جستجوی لحظه‌ای حوزه...">
         </div>
       </div>
-      <div class="domain-grid" v-if="filteredDomains.length">
-        <a v-for="(d,i) in filteredDomains" :key="d.id" class="domain-card"
-           :href="p.new_url+'?domain_id='+d.id"
-           :style="{animation:'fadeUp .4s var(--ease) both', animationDelay:(i*30)+'ms'}">
-          <div class="tile" :class="'t'+((i%8)+1)"><svg class="ic"><use :href="'#'+d.icon"/></svg></div>
-          <div class="n">{{ d.name }}</div>
-        </a>
-      </div>
+      <template v-if="filteredDomains.length">
+        <template v-for="g in orgGroups" :key="g.org">
+          <div class="org-kicker"><svg class="ic"><use href="#i-layers"/></svg> مرکز {{ g.org }} <span class="mute onum">({{ fa(g.items.length) }} حوزه)</span></div>
+          <div class="domain-grid">
+            <a v-for="(d,i) in g.items" :key="d.id" class="domain-card"
+               :href="p.new_url+'?domain_id='+d.id"
+               :style="{animation:'fadeUp .4s var(--ease) both', animationDelay:(i*30)+'ms'}">
+              <div class="tile" :class="'t'+((i%8)+1)"><svg class="ic"><use :href="'#'+d.icon"/></svg></div>
+              <div class="n">{{ d.name }}</div>
+            </a>
+          </div>
+        </template>
+      </template>
       <div v-else class="empty"><div class="eic"><svg class="ic i88"><use href="#i-empty"/></svg></div>
         <div class="fw7 ink2">حوزه‌ای با این نام یافت نشد.</div></div>
       <div v-if="p.admin" class="mute mt-5">حوزه جدید می‌خواهید؟ <a :href="p.domains_url">مدیریت حوزه‌ها</a></div>

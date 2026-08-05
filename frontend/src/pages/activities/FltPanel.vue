@@ -14,6 +14,7 @@ export default {
     qv: '',
     tk: '',
     dom: '',
+    org: '',
     st: '',
     exp: '',
     fp: { y: '', m: '', d: '' },
@@ -23,6 +24,11 @@ export default {
   computed: {
     admin() { return !!this.p.admin; },
     domains() { return this.p.domains || []; },
+    orgs() { return this.p.orgs || []; },
+    domsInOrg() {
+      if (!this.org) return this.domains;
+      return this.domains.filter(d => String(d.org_id) === this.org);
+    },
     statuses() { return this.p.statuses || []; },
     users() { return this.p.users || []; },
     args() { return this.p.args || {}; },
@@ -35,12 +41,16 @@ export default {
     const a = (this.p && this.p.args) || {};
     this.qv = a.q || ''; this.tk = a.ticket || '';
     this.dom = a.domain != null ? String(a.domain) : '';
+    this.org = a.org != null ? String(a.org) : '';
     this.st = a.status || '';
     this.exp = a.expert != null ? String(a.expert) : '';
     this.fp = { y: a.from__y || '', m: a.from__m || '', d: a.from__d || '' };
     this.tp = { y: a.to__y || '', m: a.to__m || '', d: a.to__d || '' };
   },
   watch: {
+    org() {
+      if (this.dom && !this.domsInOrg.some(d => String(d.id) === this.dom)) this.dom = '';
+    },
     col: {
       immediate: true,
       handler(v) {
@@ -93,10 +103,15 @@ export default {
     </div>
     <form class="filters" method="get" :action="p.urls && p.urls.base">
       <div class="f"><label>جستجو</label><div class="srch"><svg class="ic"><use href="#i-search"/></svg><input type="text" name="q" v-model="qv" placeholder="عنوان، تیکت، کارشناس..."></div></div>
+      <div class="f sm"><label>مرکز</label>
+        <select name="org" v-model="org">
+          <option value="">همه</option>
+          <option v-for="o in orgs" :key="o.id" :value="String(o.id)">{{ o.name }}</option>
+        </select></div>
       <div class="f sm"><label>حوزه</label>
         <select name="domain" v-model="dom">
           <option value="">همه</option>
-          <option v-for="d in domains" :key="d.id" :value="String(d.id)">{{ d.name }}</option>
+          <option v-for="d in domsInOrg" :key="d.id" :value="String(d.id)">{{ d.name }}</option>
         </select></div>
       <div class="f sm"><label>وضعیت</label>
         <select name="status" v-model="st">

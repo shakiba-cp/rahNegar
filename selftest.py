@@ -640,4 +640,109 @@ with A.app.app_context():
                              (_web["id"],)).fetchone()
 check("هم‌ترازی حوزه‌ها: «شناسه فرآیند» موجود است", _sp is not None)
 
+# مراکز (ماهر/کاشف/فیدار) و اتصال حوزه‌ها به مرکز
+with A.app.app_context():
+    _orgs = A.get_db().execute("SELECT name FROM orgs ORDER BY sort_order").fetchall()
+check("سه مرکز پیش‌فرض ساخته شده‌اند",
+      [o["name"] for o in _orgs] == ["ماهر", "کاشف", "فیدار"], [o["name"] for o in _orgs])
+with A.app.app_context():
+    _noorg = A.get_db().execute("SELECT COUNT(*) c FROM domains WHERE org_id IS NULL").fetchone()["c"]
+    _mah = A.get_db().execute("SELECT id FROM orgs WHERE name='ماهر'").fetchone()
+    _kashef = A.get_db().execute("SELECT id FROM orgs WHERE name='کاشف'").fetchone()
+check("همه حوزه‌ها به یک مرکز متصل‌اند (backfill ماهر)", _noorg == 0, _noorg)
+
+r = c.post("/orgs/add", data={"name": "مرکز تستی"}, follow_redirects=True)
+check("افزودن مرکز جدید", "مرکز جدید افزوده شد".encode() in r.data, r.status_code)
+
+r = c.post("/domains", data={"name": "حوزه تستی کاشف", "org_id": _kashef["id"]},
+           follow_redirects=True)
+with A.app.app_context():
+    _kd = A.get_db().execute("SELECT id, org_id FROM domains WHERE name='حوزه تستی کاشف'").fetchone()
+check("ساخت حوزه زیر مرکز کاشف", _kd is not None and _kd["org_id"] == _kashef["id"],
+      _kd["org_id"] if _kd else None)
+
+r = c.post(f"/domains/{_kd['id']}/edit", data={"name": "حوزه تستی کاشف", "org_id": _mah["id"]},
+           follow_redirects=True)
+with A.app.app_context():
+    _mov = A.get_db().execute("SELECT org_id FROM domains WHERE id=?", (_kd["id"],)).fetchone()
+check("انتقال حوزه به مرکز دیگر", _mov["org_id"] == _mah["id"], _mov["org_id"])
+
+with A.app.app_context():
+    _torg = A.get_db().execute("SELECT id FROM orgs WHERE name='مرکز تستی'").fetchone()
+r = c.post(f"/orgs/{_torg['id']}/delete", follow_redirects=True)
+with A.app.app_context():
+    _gone = A.get_db().execute("SELECT 1 FROM orgs WHERE name='مرکز تستی'").fetchone()
+check("حذف مرکز خالی", _gone is None)
+
+r = c.get(f"/activities?org={_kashef['id']}")
+check("فیلتر مرکز در لیست فعالیت‌ها", r.status_code == 200, r.status_code)
+r = c.get(f"/reports?org={_kashef['id']}")
+check("فیلتر مرکز در گزارش‌ها", r.status_code == 200, r.status_code)
+r = c.get("/domains")
+check("صفحه مدیریت حوزه‌ها: نوار مراکز", "مراکز:".encode() in r.data)
+
+# یکدست‌سازی نام کارشناس — ادغام «نام کوتاه/مستعار» با نام کامل در نمودار داشبورد
+with A.app.app_context():
+    _d = A.get_db()
+    _wid = _d.execute("SELECT id FROM domains WHERE name='ارزیابی امنیتی وب'").fetchone()["id"]
+    _ef = _d.execute("""SELECT f.id FROM form_fields f JOIN domains d ON d.id=f.domain_id
+                        WHERE d.name='ارزیابی امنیتی وب' AND f.field_key='expert'""").fetchone()["id"]
+    _aid = _d.execute("SELECT id FROM users WHERE username='admin'").fetchone()["id"]
+    _d.execute("INSERT INTO users(username,password_hash,full_name,role,aliases,created_at)"
+               " VALUES(?,?,?,?,?,?)",
+               ("vizhe", "x", "کامران ویژه‌پور", "expert", "کامران", A.now_iso()))
+    for _e in ["کامران ویژه‌پور", "ویژه‌پور", "کامران", "مهدی صالحی", "علی صالحی", "صالحی"]:
+        _cur = _d.execute("INSERT INTO activities(domain_id,user_id,status,created_at,updated_at)"
+                          " VALUES(?,?,?,?,?)", (_wid, _aid, "انجام شده", A.now_iso(), A.now_iso()))
+        _d.execute("INSERT INTO activity_values(activity_id,field_id,value) VALUES(?,?,?)",
+                   (_cur.lastrowid, _ef, _e))
+    _d.commit()
+r = c.get("/api/dashboard")
+_exp = {e["label"]: e["value"] for e in r.get_json()["charts"]["experts"]}
+check("ادغام پسوند یکتا: «ویژه‌پور» با «کامران ویژه‌پور» یکی شمرده می‌شود",
+      _exp.get("کامران ویژه‌پور", 0) >= 2 and "ویژه‌پور" not in _exp, str(_exp))
+check("ادغام نام مستعار: «کامران» با نام کامل کاربر یکی شمرده می‌شود",
+      _exp.get("کامران ویژه‌پور", 0) >= 3, str(_exp))
+check("پسوند مبهم ادغام نمی‌شود («صالحی» جدا از دو نام کامل می‌ماند)",
+      _exp.get("صالحی", 0) == 1 and _exp.get("علی صالحی", 0) == 1 and _exp.get("مهدی صالحی", 0) == 1,
+      str(_exp))
+
+# دو املای متفاوت از یک نام (فاصله/نیم‌فاصله) نباید باعث ابهام در ادغام شوند
+with A.app.app_context():
+    _d = A.get_db()
+    for _e in ["کامران ویژه پور", "ویژه پور"]:
+        _cur = _d.execute("INSERT INTO activities(domain_id,user_id,status,created_at,updated_at)"
+                          " VALUES(?,?,?,?,?)",
+                          (_wid, _aid, "انجام شده", A.now_iso(), A.now_iso()))
+        _d.execute("INSERT INTO activity_values(activity_id,field_id,value) VALUES(?,?,?)",
+                   (_cur.lastrowid, _ef, _e))
+    _d.commit()
+r = c.get("/api/dashboard")
+_exp = {e["label"]: e["value"] for e in r.get_json()["charts"]["experts"]}
+check("دو املای یک نام ابهام ایجاد نمی‌کند و همه ادغام می‌شوند",
+      _exp.get("کامران ویژه‌پور", 0) == 5 and "ویژه پور" not in _exp and "کامران ویژه پور" not in _exp,
+      str(_exp))
+
+# چند کارشناس در یک سلول اکسل: هر بخش یکدست، جداکننده یکسان و بخش تکراری حذف می‌شود
+with A.app.app_context():
+    _d = A.get_db()
+    for _e in ["ویژه‌پور، مهدی صالحی", "ویژه‌پور و مهدی صالحی", "کامران و کامران ویژه‌پور"]:
+        _cur = _d.execute("INSERT INTO activities(domain_id,user_id,status,created_at,updated_at)"
+                          " VALUES(?,?,?,?,?)",
+                          (_wid, _aid, "انجام شده", A.now_iso(), A.now_iso()))
+        _d.execute("INSERT INTO activity_values(activity_id,field_id,value) VALUES(?,?,?)",
+                   (_cur.lastrowid, _ef, _e))
+    _d.commit()
+r = c.get("/api/dashboard")
+_exp = {e["label"]: e["value"] for e in r.get_json()["charts"]["experts"]}
+check("چند نام در یک سلول: بخش‌ها یکدست و با جداکننده یکسان یکجا گروه می‌شوند",
+      _exp.get("کامران ویژه‌پور، مهدی صالحی", 0) == 2, str(_exp))
+check("بخش‌های دوپلیکیت یک نفر یک بار می‌آیند («کامران و کامران ویژه‌پور» ← یک نفر)",
+      _exp.get("کامران ویژه‌پور", 0) == 6, str(_exp))
+r = c.get("/users/new")
+check("فرم کاربر: فیلد «نام‌های مستعار» موجود است", "نام‌های مستعار".encode() in r.data)
+r = c.get("/activities")
+check("لیست فعالیت‌ها: نام ادغام‌شده یکتا نمایش داده می‌شود",
+      '"expert": "ویژه‌پور"'.encode() not in r.data, r.data[-100:])
+
 print(f"\n✅ همه {len(ok)} تست موفقیت‌آمیز بود.")

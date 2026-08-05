@@ -9,12 +9,14 @@ export default {
     const payload = readJson('doms-data') || { rows: [] };
     return {
       rows: (payload.rows || []).map((r, i) => ({ ...r, idx: i + 1, active_num: r.is_active ? 1 : 0 })),
+      orgs: payload.orgs || [],
       q: '',
       sortKey: '',
       sortDir: 1,
       cols: [
         { k: 'idx', t: '#' },
         { k: 'name', t: 'حوزه' },
+        { k: 'org', t: 'مرکز' },
         { k: 'field_count_num', t: 'فیلدهای فعال' },
         { k: 'act_count_num', t: 'فعالیت‌ها' },
         { k: 'active_num', t: 'وضعیت' }
@@ -54,7 +56,15 @@ export default {
           <form method="post" :action="d.edit" class="btn-row">
             <svg class="ic dic" style="width:17px;height:17px"><use :href="'#'+d.icon"/></svg>
             <input type="text" name="name" :value="d.name" class="iname">
-            <button class="btn ghost icon" title="ذخیره نام"><svg class="ic"><use href="#i-check"/></svg></button>
+            <button class="btn ghost icon" title="ذخیره نام و مرکز"><svg class="ic"><use href="#i-check"/></svg></button>
+          </form>
+        </td>
+        <td>
+          <form method="post" :action="d.edit" class="btn-row">
+            <select name="org_id" class="osel-mini" :value="String(d.org_id)" title="مرکز این حوزه — با ذخیره، منتقل می‌شود">
+              <option v-for="o in orgs" :key="o.id" :value="String(o.id)">{{ o.name }}</option>
+            </select>
+            <button class="btn ghost icon" title="انتقال به این مرکز"><svg class="ic"><use href="#i-check"/></svg></button>
           </form>
         </td>
         <td class="onum">{{ fa(d.field_count) }}</td>
@@ -66,7 +76,7 @@ export default {
           <form v-if="!d.act_count" method="post" :action="d.delete" onsubmit="return confirm('حذف این حوزه؟')"><button class="btn danger icon" title="حذف"><svg class="ic"><use href="#i-trash"/></svg></button></form>
         </div></td>
       </tr>
-      <tr v-if="!filtered.length"><td colspan="6" class="mute tac" style="padding:26px">حوزه‌ای یافت نشد.</td></tr>
+      <tr v-if="!filtered.length"><td colspan="7" class="mute tac" style="padding:26px">حوزه‌ای یافت نشد.</td></tr>
       </tbody>
     </table></div>
   </div>
