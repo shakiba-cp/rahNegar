@@ -1188,4 +1188,50 @@ check("PDF: ستون‌های پایه (عنوان/کارشناس) در هر د�
 r = c.get(f"/reports?export=pdf&col={_ulbl}&col=عنوان", follow_redirects=False)
 check("PDF با انتخاب ستون بدون خطا رندر می‌شود", r.status_code == 200, r.status_code)
 
+# ---------- سازگاری /domains با دیتابیس ناقص (ستون‌های مهاجرت‌نشده) ----------
+# شبیه‌سازی سرور کاربر: users/domains بدون org_id → نباید ۵۰۰ شود
+with A.app.app_context():
+    _db = A.get_db()
+    _db.execute("PRAGMA foreign_keys = OFF")
+    _cols = [r[1] for r in _db.execute("PRAGMA table_info(users)") if r[1] != "org_id"]
+    _db.execute("ALTER TABLE users RENAME TO users_bak")
+    _db.execute(f"CREATE TABLE users AS SELECT {','.join(_cols)} FROM users_bak")
+    _db.execute("DROP TABLE users_bak")
+    _cols2 = [r[1] for r in _db.execute("PRAGMA table_info(domains)") if r[1] != "org_id"]
+    _db.execute("ALTER TABLE domains RENAME TO domains_bak")
+    _db.execute(f"CREATE TABLE domains AS SELECT {','.join(_cols2)} FROM domains_bak")
+    _db.execute("DROP TABLE domains_bak")
+    _db.commit()
+    _db.execute("PRAGMA foreign_keys = ON")
+r = c.get("/domains")
+check("صفحه مراکز با دیتابیس ناقص (بدون org_id) باز می‌شود، نه ۵۰۰",
+      r.status_code == 200 and "مراکز و حوزه‌ها".encode() in r.data, r.status_code)
+r = c.get("/orgs/1")
+check("صفحه مرکز با دیتابیس ناقص هم باز می‌شود", r.status_code == 200, r.status_code)
+# بازگردانی مهاجرت‌ها
+with A.app.app_context():
+    A.init_db()
+with A.app.app_context():
+    _db = A.get_db()
+    _u_has = "org_id" in {r[1] for r in _db.execute("PRAGMA table_info(users)")}
+    _d_has = "org_id" in {r[1] for r in _db.execute("PRAGMA table_info(domains)")}
+check("init_db ستون‌های org_id را بازمی‌گرداند", _u_has and _d_has)
+r = c.get("/domains")
+check("بعد از بازگردانی، صفحه مراکز با شمارش‌ها سالم است",
+      r.status_code == 200 and "حوزه".encode() in r.data)
+r = c.get("/")
+check("داشبورد بعد از بازگردانی سالم است", r.status_code == 200)
+r = c.get("/activities")
+check("فعالیت‌ها بعد از بازگردانی سالم است", r.status_code == 200)
+
+# ---------- لاگ دائمی خطای ۵۰۰ ----------
+import os as _os  # noqa: E402
+r = c.get("/orgs/9999")  # این 404 است نه 500 — صرفاً چک هندلرها
+check("404 هنوز صفحه سفارشی دارد", r.status_code == 404)
+with open("app.py", encoding="utf-8") as _f:
+    _app_src = _f.read()
+check("هندلر ۵۰۰ با لاگ فایل تعریف شده",
+      "@app.errorhandler(500)" in _app_src and "logs" in _app_src
+      and "errors.log" in _app_src)
+
 print(f"\n✅ همه {len(ok)} تست موفقیت‌آمیز بود.")

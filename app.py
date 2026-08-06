@@ -209,7 +209,7 @@ DOMAIN_FIELDS = {
 
 app = Flask(__name__)
 # نسخه دارایی‌های استاتیک برای شکستن کش مرورگر بعد از هر آپدیت (cache-busting)
-ASSET_V = "6.5.9"
+ASSET_V = "6.5.10"
 app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
 # تقویت امنیت کوکی نشست — Secure را هنگام HTTPS با متغیر محیطی SECURE_COOKIE=1 فعال کنید
 app.config["SESSION_COOKIE_HTTPONLY"] = True
@@ -3036,18 +3036,30 @@ def optional_font_css():
 
 
 def _domains_json(db, org_id=None):
-    """داده JSON جدول حوزه‌ها (برای DomsTable) — قابل فیلتر به یک مرکز."""
+    """داده JSON جدول حوزه‌ها (برای DomsTable) — قابل فیلتر به یک مرکز.
+
+    مقاوم در برابر دیتابیس ناقص: اگر domains.org_id وجود نداشت، فیلتر مرکز و
+    ستون مرکز با مقدار خنثی می‌آیند تا صفحه ۵۰۰ نشود."""
     orgs = db.execute("SELECT * FROM orgs ORDER BY sort_order, id").fetchall()
-    where, params = ("WHERE d.org_id=?", (org_id,)) if org_id else ("", ())
-    rows = db.execute(f"""SELECT d.*, o.name org_name,
+    d_has_org = "org_id" in {r[1] for r in db.execute("PRAGMA table_info(domains)")}
+    if d_has_org:
+        where, params = ("WHERE d.org_id=?", (org_id,)) if org_id else ("", ())
+        join_sel = "LEFT JOIN orgs o ON o.id=d.org_id"
+        order_by = "ORDER BY COALESCE(o.sort_order,99), d.sort_order, d.id"
+        org_sel = "o.name AS org_name"
+    else:  # دیتابیس خیلی قدیمی/ناقص — بدون اتصال به مرکز
+        where, params = ("", ())
+        join_sel = "LEFT JOIN orgs o ON 1=0"
+        order_by = "ORDER BY d.sort_order, d.id"
+        org_sel = "NULL AS org_name"
+    rows = db.execute(f"""SELECT d.*, {org_sel},
         (SELECT COUNT(*) FROM activities a WHERE a.domain_id=d.id) act_count,
         (SELECT COUNT(*) FROM form_fields f WHERE f.domain_id=d.id AND f.is_active=1) field_count
-        FROM domains d LEFT JOIN orgs o ON o.id=d.org_id
-        {where}
-        ORDER BY COALESCE(o.sort_order,99), d.sort_order, d.id""", params).fetchall()
+        FROM domains d {join_sel} {where} {order_by}""", params).fetchall()
     domains_json = [{
         "id": d["id"], "name": d["name"], "icon": domain_icon(d["name"]),
-        "org": d["org_name"] or "—", "org_id": d["org_id"] or 0,
+        "org": d["org_name"] or "—",
+        "org_id": d["org_id"] if d_has_org and d["org_id"] is not None else 0,
         "field_count": d["field_count"], "act_count": d["act_count"],
         "is_active": bool(d["is_active"]),
         "edit": url_for("domain_edit", domain_id=d["id"]),
@@ -3080,13 +3092,31 @@ def domains_page():
             flash("حوزه جدید افزوده شد. از «مدیریت فیلدها» فیلدهای آن را تعریف کنید.", "success")
             return redirect(url_for("org_view", org_id=org_id))
         return redirect(request.referrer or url_for("domains_page"))
-    # نمای کلی مراکز: نام، شمارش حوزه/فعالیت/کارشناس — کارت هر مرکز
-    orgs = db.execute("""SELECT o.*,
-        (SELECT COUNT(*) FROM domains d WHERE d.org_id=o.id) dom_count,
-        (SELECT COUNT(*) FROM activities a JOIN domains d2 ON d2.id=a.domain_id
-          WHERE d2.org_id=o.id) act_count,
-        (SELECT COUNT(*) FROM users u WHERE u.org_id=o.id AND u.is_active=1) user_count
-        FROM orgs o ORDER BY o.sort_order, o.id""").fetchall()
+    # نمای کلی مراکز: نام، شمارش حوزه/فعالیت/کارشناس — کارت هر مرکز.
+    # مقاوم در برابر دیتابیس‌های قدیمی/ناقص: اگر ستونی (مثل org_id کاربران) وجود
+    # نداشت، به‌جای خطای ۵۰۰ با صفر می‌آید — ریشه خطای ۵۰۰ /domains در سرور کاربر.
+    def _colset(tbl):
+        return {r[1] for r in db.execute(f"PRAGMA table_info({tbl})")}
+    _o_cols, _d_cols, _u_cols = _colset("orgs"), _colset("domains"), _colset("users")
+
+    def _cnt(sql, *p):
+        try:
+            return db.execute(sql, p).fetchone()[0]
+        except sqlite3.OperationalError as ex:
+            app.logger.warning("orgs overview count failed: %s", ex)
+            return 0
+
+    _order = "sort_order, id" if "sort_order" in _o_cols else "id"
+    _d_org, _u_org = "org_id" in _d_cols, "org_id" in _u_cols
+    orgs = [{
+        **dict(o),
+        "dom_count": _cnt("SELECT COUNT(*) FROM domains WHERE org_id=?", o["id"]) if _d_org else 0,
+        "act_count": _cnt("""SELECT COUNT(*) FROM activities a JOIN domains d2
+                             ON d2.id=a.domain_id WHERE d2.org_id=?""",
+                          o["id"]) if _d_org else 0,
+        "user_count": _cnt("SELECT COUNT(*) FROM users WHERE org_id=? AND is_active=1",
+                           o["id"]) if _u_org else 0,
+    } for o in db.execute(f"SELECT * FROM orgs ORDER BY {_order}").fetchall()]
     return render_template("domains.html", orgs=orgs)
 
 
@@ -3440,6 +3470,27 @@ def _413(_e):
            "سقف حجم آپلود را افزایش دهد. اگر این پیام از وب‌سرور (nginx) آمده است "
            "باید مقدار client_max_body_size در تنظیمات nginx افزایش یابد.")
     return render_template("error.html", code=413, msg=msg), 413
+
+
+@app.errorhandler(500)
+def _500(e):
+    """خطای داخلی → لاگ دائمی traceback در logs/errors.log (بدون نیاز به ترمینال قابل ارسال است)."""
+    orig = getattr(e, "original_exception", e)
+    try:
+        import traceback as _tb
+        import datetime as _dt
+        os.makedirs("logs", exist_ok=True)
+        with open(os.path.join("logs", "errors.log"), "a", encoding="utf-8") as f:
+            f.write(f"\n===== {_dt.datetime.now().isoformat(timespec='seconds')} "
+                    f"{request.method} {request.path} =====\n")
+            f.write("".join(_tb.format_exception(type(orig), orig, orig.__traceback__)))
+    except OSError:
+        pass
+    if not getattr(g, "user", None):
+        g.user = current_user()
+    msg = ("خطای داخلی رخ داد. جزئیات فنی در فایل logs/errors.log ذخیره شد — "
+           "لطفاً آن فایل را برای تیم توسعه بفرستید تا دقیق برطرف شود.")
+    return render_template("error.html", code=500, msg=msg), 500
 
 
 with app.app_context():
