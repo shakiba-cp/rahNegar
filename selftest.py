@@ -229,6 +229,26 @@ with A.app.app_context():
 check("کارشناس ناشناخته: نامِ نمایشی = همان نامِ داخل فایل",
       _rows300 and _rows300[0]["expert_txt"] == "رضا کریمی",
       _rows300[0]["expert_txt"] if _rows300 else None)
+
+# ---------- PDF: برای هر حوزه فقط ستون‌های همان حوزه (بدون ستون‌های بیگانه)
+with A.app.app_context():
+    _acts_pdf = A.query_activities("1=1", [])
+    _hp, _rp = A.export_rows(_acts_pdf)
+    _summ, _groups = A.report_print_tables(_hp, _rp, _acts_pdf)
+_gnames = {gg["name"]: gg for gg in _groups}
+check("PDF: تیتر گزارش فقط حوزه‌های دارای رکورد",
+      set(_gnames) == {"ارزیابی امنیتی وب"})
+_web_bands = [b["header"] for b in _gnames["ارزیابی امنیتی وب"]["bands"]]
+check("PDF حوزه وب: ستون‌های حوزهٔ دیگر (بدافزار) نمایش داده نمی‌شوند",
+      all("بدافزار" not in hh for hh in _web_bands), _web_bands)
+check("PDF حوزه وب: ستون‌های تعریف‌شدهٔ خودش در جداول هستند",
+      any("آدرس" in hh for hh in _web_bands) and any("کارفرما" in hh for hh in _web_bands),
+      _web_bands)
+check("PDF حوزه وب: ستون «حوزه» در باند اطلاعات پایه تکرار نمی‌شود (در تیتر گروه هست)",
+      _web_bands and "حوزه" not in _web_bands[0], _web_bands[0] if _web_bands else [])
+check("PDF حوزه وب: باندی به‌نام «اطلاعات پایه» با ستون‌های پایه وجود دارد",
+      any(b["caption"] == "اطلاعات پایه" and "عنوان" in b["header"]
+          for b in _gnames["ارزیابی امنیتی وب"]["bands"]))
 r = c.get("/")
 check("کارشناس ناشناخته در نمودار تفکیک کارشناس دیده می‌شود",
       "رضا کریمی".encode() in r.data)
@@ -383,6 +403,29 @@ with A.app.app_context():
     _semi = A.get_db().execute(
         "SELECT title FROM activities WHERE title='https://semi.example'").fetchone()
 check("ورود CSV با جداکننده «؛»", _semi is not None, _semi["title"] if _semi else None)
+
+# ورود Excel قدیمی xls (۹۷-۲۰۰۳) با xlrd — ساخت فایل تست با xlwt در صورت وجود
+try:
+    import xlwt as _xlwt
+    _wbl = _xlwt.Workbook(encoding="utf-8")
+    _wsl = _wbl.add_sheet("S1")
+    for _ci, _h in enumerate(["تاریخ", "کارشناس", "کارفرما", "شدت", "آدرس"]):
+        _wsl.write(0, _ci, _h)
+    _wsl.write(1, 0, "1405/05/01"); _wsl.write(1, 1, "مدیر سامانه")
+    _wsl.write(1, 2, "سازمان قدیمی"); _wsl.write(1, 3, "متوسط")
+    _wsl.write(1, 4, "https://legacy.xls.example")
+    _bl = io.BytesIO(); _wbl.save(_bl); _bl.seek(0)
+    r = c.post("/import", data={"domain_id": str(dom["id"]),
+                                "file": (_bl, "legacy.xls")},
+               content_type="multipart/form-data", follow_redirects=True)
+    with A.app.app_context():
+        _leg = A.get_db().execute(
+            "SELECT title FROM activities WHERE title='https://legacy.xls.example'").fetchone()
+    check("ورود فایل xls قدیمی (Excel ۹۷-۲۰۰۳)",
+          (A.xlrd is None) or (_leg is not None),
+          _leg["title"] if _leg else f"xlrd={A.xlrd is not None}")
+except ImportError:
+    pass
 
 # فایل نامعتبر رد شود
 r = c.post("/import", data={"domain_id": str(dom["id"]),

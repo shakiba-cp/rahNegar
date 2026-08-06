@@ -28,6 +28,11 @@ except ImportError:  # pragma: no cover
     Workbook = None
     load_workbook = None
 
+try:
+    import xlrd  # خواندن Excel قدیمی (xls) — اختیاری؛ در نبودش پیام راهنما داده می‌شود
+except ImportError:  # pragma: no cover
+    xlrd = None
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "secman.db")
 UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")
@@ -204,7 +209,7 @@ DOMAIN_FIELDS = {
 
 app = Flask(__name__)
 # نسخه دارایی‌های استاتیک برای شکستن کش مرورگر بعد از هر آپدیت (cache-busting)
-ASSET_V = "6.5.1"
+ASSET_V = "6.5.3"
 app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
 # تقویت امنیت کوکی نشست — Secure را هنگام HTTPS با متغیر محیطی SECURE_COOKIE=1 فعال کنید
 app.config["SESSION_COOKIE_HTTPONLY"] = True
@@ -970,11 +975,17 @@ def _band_weights(labels):
 
 def report_print_tables(header, rows, acts):
     """چیدمان جداول چاپ: به‌جای یک جدول عریضِ اجتماعِ همه حوزه‌ها (که از کاغذ
-    بیرون می‌زد و ستون‌ها را له می‌کرد)، برای هر حوزه جدول مجزا با ستون‌های
-    خودش و در باند‌های حداکثر ~۸ ستونه؛ فیلدهای متن‌بلدر (textarea) هرکدام
-    جدول دوسطونهٔ جدا. خروجی: (خلاصه|None, لیست گروه‌ها)"""
+    بیرون می‌زد و ستون‌ها را له می‌کرد)، برای هر حوزه جدول مجزا «فقط با
+    ستون‌های همان حوزه» و در باند‌های حداکثر ~۸ ستونه؛ فیلدهای متن‌بلد
+    (textarea) هرکدام جدول دوسطونهٔ جدا. ستونِ «حوزه» چون در تیتر گروه آمده
+    تکرار نمی‌شود. خروجی: (خلاصه|None, لیست گروه‌ها)"""
     db = get_db()
-    base_n = len(BASE_COLS) if header[:len(BASE_COLS)] == BASE_COLS else len(header)
+    # تعداد ستون‌های پایهٔ ابتدای header — مقاوم به حذفِ ستون «شماره تیکت»
+    # (وقتی هیچ ردیفی تیکت ندارد آن ستون از header برداشته می‌شود؛ سابقاً همین
+    # باعث می‌شد همهٔ ستون‌ها در باند «اطلاعات پایه» قاطی شوند)
+    base_n = 0
+    while base_n < len(header) and header[base_n] in BASE_COLS:
+        base_n += 1
     names = []
     for a in acts:
         dn = a["domain_name"] if "domain_name" in a.keys() else ""
@@ -990,8 +1001,10 @@ def report_print_tables(header, rows, acts):
                              names):
             lbl_info.setdefault(rr["dn"], []).append(
                 (rr["label"], rr["field_type"], rr["section"] or ""))
+    # برچسب‌های تعریف‌شده در هریک از حوزه‌های حاضر در گزارش
+    defined_anywhere = {lbl for ls in lbl_info.values() for lbl, _t, _s in ls}
     summary = None
-    if len(names) > 1 and base_n == len(BASE_COLS):
+    if len(names) > 1 and base_n:
         summary = {"header": header[:base_n], "rows": [r[:base_n] for r in rows],
                    "weights": _band_weights(header[:base_n])}
     try:
@@ -1011,19 +1024,27 @@ def report_print_tables(header, rows, acts):
         if not drows:
             continue
         bands = []
-        if base_n:
-            bands.append(_mk_band("اطلاعات پایه", list(range(base_n))))
+        # باند اطلاعات پایه بدون ستون «حوزه» (در تیتر گروه هست)
+        base_idxs = list(range(base_n))
+        if base_idxs and header[base_idxs[0]] == "حوزه":
+            base_idxs = base_idxs[1:]
+        if base_idxs:
+            bands.append(_mk_band("اطلاعات پایه", base_idxs))
         used = set()
         short, long_cols = [], []
+        # فقط و فقط فیلدهای تعریف‌شده برای همین حوزه
         for lbl, ftype, sec in lbl_info.get(dn, []):
             for i in range(base_n, len(header)):
                 if header[i] == lbl and i not in used:
                     used.add(i)
                     (long_cols if ftype == "textarea" else short).append((i, sec))
                     break
-        # فیلدهایی که در تعریف فعلی حوزه نیستند ولی مقدار دارند
+        # ستون‌های یتیم: متعلق به هیچ‌کدام از حوزه‌های گزارش نیستند (مثلاً
+        # فیلدی که قبلاً از فرم حذف شده) ولی برای ردیف‌های همین حوزه مقدار دارند —
+        # ستون‌هایِ سایر حوزه‌ها اصلاً نمایش داده نمی‌شوند
         for i in range(base_n, len(header)):
-            if i not in used:
+            if (i not in used and header[i] not in defined_anywhere
+                    and any(r[i] for r in drows)):
                 short.append((i, "")); used.add(i)
         # خرد کردن فیلدهای کوتاه به باندهای ۷تایی — بدون عبور از مرز بخش‌ها —
         # به انضمام ستون «عنوان» در ابتدای هر باند برای شناسایی رکورد
@@ -1955,8 +1976,8 @@ def import_excel():
         if not f or not f.filename:
             flash("فایل Excel یا CSV را انتخاب کنید.", "error")
             return redirect(url_for("import_excel"))
-        if not f.filename.lower().endswith((".xlsx", ".xlsm", ".csv")):
-            flash("فقط فایل Excel (xlsx) یا CSV پذیرفته می‌شود.", "error")
+        if not f.filename.lower().endswith((".xlsx", ".xlsm", ".xls", ".csv")):
+            flash("فقط فایل Excel (xlsx یا xls) یا CSV پذیرفته می‌شود.", "error")
             return redirect(url_for("import_excel"))
         domain = get_domain_or_404(domain_id)
         data = f.read()
@@ -2194,6 +2215,34 @@ def _read_table_rows(data, filename):
             return [r for r in rows]
         except _csv.Error:
             return None
+    if str(filename or "").lower().endswith(".xls"):
+        # Excel قدیمی ۹۷-۲۰۰۳ — با xlrd (در صورت نصب)؛ تاریخ‌ها به ISO تبدیل می‌شوند
+        if xlrd is None:
+            return None
+        try:
+            bkw = xlrd.open_workbook(file_contents=data)
+            sh = bkw.sheet_by_index(0)
+            out = []
+            for rxi in range(sh.nrows):
+                row = []
+                for cx in range(sh.ncols):
+                    cell = sh.cell(rxi, cx)
+                    v = cell.value
+                    if cell.ctype == xlrd.XL_CELL_DATE:
+                        try:
+                            dv = xlrd.xldate_as_datetime(v, bkw.datemode)
+                            v = f"{dv.year:04d}-{dv.month:02d}-{dv.day:02d}"
+                        except Exception:
+                            pass
+                    elif isinstance(v, float) and float(v).is_integer():
+                        v = int(v)
+                    if isinstance(v, str):
+                        v = v.strip()
+                    row.append(v)
+                out.append(tuple(row))
+            return out
+        except Exception:
+            return None
     try:
         ws = load_workbook(io.BytesIO(data), read_only=True, data_only=True).active
         return list(ws.iter_rows(values_only=True))
@@ -2211,7 +2260,14 @@ def _process_excel(domain, data, filename, dup_mode="ask"):
     db = get_db()
     rows = _read_table_rows(data, filename)
     if rows is None:
-        flash("فایل به‌درستی خوانده نشد. یک فایل xlsx یا csv معتبر انتخاب کنید.", "error")
+        if str(filename or "").lower().endswith(".xls"):
+            if xlrd is None:
+                flash("فایل Excel قدیمی (xls) است. در Excel آن را با «Save As» به فرمت xlsx "
+                      "ذخیره و دوباره بارگذاری کنید (یا روی سرور xlrd نصب شود).", "error")
+            else:
+                flash("فایل xls به‌درستی خوانده نشد. با «Save As» به xlsx تبدیل و دوباره تلاش کنید.", "error")
+        else:
+            flash("فایل به‌درستی خوانده نشد. یک فایل xlsx یا csv معتبر انتخاب کنید.", "error")
         return db.execute("INSERT INTO excel_imports(domain_id,user_id,filename,total_rows,"
                           "success_rows,error_rows,errors,imported_at) VALUES(?,?,?,?,0,?,?,?)",
                           (domain["id"], g.user["id"], filename, 0, 0,
