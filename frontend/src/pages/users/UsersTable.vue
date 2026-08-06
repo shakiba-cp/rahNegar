@@ -29,6 +29,7 @@ export default {
       cols: [
         { k: 'username', t: 'کاربر' },
         { k: 'full_name', t: 'نام کامل' },
+        { k: 'org', t: 'بخش' },
         { k: 'role', t: 'نقش' },
         { k: 'kind', t: 'سمت' },
         { k: 'tc_num', t: 'سرپرست / کارآموزان' },
@@ -41,7 +42,7 @@ export default {
     filtered() {
       let r = this.rows;
       const q = this.q.trim();
-      if (q) r = r.filter(x => (x.username + ' ' + x.full_name).includes(q));
+      if (q) r = r.filter(x => (x.username + ' ' + x.full_name + ' ' + (x.org || '')).includes(q));
       return this.kSort(r);
     },
     pages() { return Math.max(1, Math.ceil(this.filtered.length / PER)); },
@@ -83,6 +84,7 @@ export default {
       <tr v-for="u in paged" :key="u.id" :class="{op45: !u.is_active}">
         <td><span class="nih"><span class="avt" :style="avStyle(u)">{{ (u.full_name||'؟')[0] }}</span><b class="ink1">{{ u.username }}</b></span></td>
         <td>{{ u.full_name }}</td>
+        <td><span class="badge" :class="u.org_id ? 'st-prog' : ''" :title="u.org_id ? 'فقط حوزه‌های این بخش را می‌بیند' : 'همهٔ حوزه‌ها'">{{ u.org }}</span></td>
         <td><span class="role-chip" :class="{expert: u.role==='expert'}">{{ u.role==='admin' ? 'مدیر' : 'کارشناس' }}</span>
           <span v-if="u.role!=='admin'" class="perm-mini">
             <span v-if="u.can_add">ثبت</span><span v-if="u.can_edit">ویرایش</span><span v-if="u.can_delete">حذف</span><span v-if="u.can_import">اکسل</span>
@@ -102,7 +104,7 @@ export default {
           </template>
         </div></td>
       </tr>
-      <tr v-if="!filtered.length"><td colspan="8" class="mute tac" style="padding:26px">کاربری با این جستجو یافت نشد.</td></tr>
+      <tr v-if="!filtered.length"><td colspan="9" class="mute tac" style="padding:26px">کاربری با این جستجو یافت نشد.</td></tr>
       </tbody>
     </table></div>
     <div class="tbl-foot" v-if="pages>1">

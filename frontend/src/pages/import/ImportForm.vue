@@ -45,10 +45,10 @@ export default {
         <div class="dz" :class="{over: over}"
              @click="pick" @dragover.prevent="over=true" @dragenter.prevent="over=true"
              @dragleave.prevent="over=false" @drop.prevent="onDrop">
-          <input type="file" name="file" id="file" accept=".xlsx,.xlsm,.csv" required class="hide" ref="fi" @change="onFile">
+          <input type="file" name="file" id="file" accept=".xlsx,.xlsm,.xls,.csv" required class="hide" ref="fi" @change="onFile">
           <div class="dz-ic"><svg class="ic i22"><use href="#i-upload"/></svg></div>
           <div class="dz-t">فایل را اینجا رها کنید یا کلیک کنید</div>
-          <div class="dz-s">xlsx / xlsm / csv — سطر اول باید عنوان ستون‌ها باشد</div>
+          <div class="dz-s">xlsx / xls / csv — سطر اول باید عنوان ستون‌ها باشد</div>
           <div class="dz-name" v-show="fname" v-text="fname" style="display:none"></div>
         </div>
       </div>

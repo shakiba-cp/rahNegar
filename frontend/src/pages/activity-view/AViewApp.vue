@@ -1,6 +1,8 @@
 <script>
-/* صفحه جزئیات فعالیت — پورت SFC؛ داده از جزیره «aview-data»
-   چیدمان مرتب سازمانی: ردیف‌های برچسب/مقدار + بلوک متن بلند + چیپ فایل */
+/* صفحه جزئیات فعالیت — بازطراحی بر اساس بریف طراحی سازمانی:
+   کارت‌های بخش‌بندی‌شده (اطلاعات فعالیت/درخواست/تحویل)، فیلد خواندنی متنی
+   (بدون ظاهر Input)، بج رنگی برای شدت/وضعیت، آیکون برای خوانایی سریع،
+   فونت مقدار برجسته‌تر از برچسب و فضای عمودی فشرده‌تر. */
 import { readJson, faNum as fa, statusClass } from '@/lib/kit.js';
 
 export default {
@@ -26,6 +28,50 @@ export default {
   },
   methods: {
     fa, stClass: statusClass,
+    /* عنوان بخش: نام‌های بلند فنی → تیترهای خلاصهٔ سازمانی */
+    secTitle(s) {
+      const n = s.name || '';
+      if (!n) return 'اطلاعات فعالیت';
+      if (n.includes('درخواست')) return 'اطلاعات درخواست';
+      if (n.includes('تحویل')) return 'اطلاعات تحویل';
+      return n;
+    },
+    /* آیکون دیداری برای برچسب‌های شناخته‌شده — افزایش سرعت خواندن */
+    fIcon(label) {
+      const l = label || '';
+      if (/تاریخ|زمان/.test(l)) return 'i-cal';
+      if (/کارشناس|درخواست‌دهنده|تحویل‌گیرنده|تحویل‌دهنده|ارائه کننده|مدرس/.test(l)) return 'i-user';
+      if (/شدت|اولویت/.test(l)) return 'i-alert-tri';
+      if (/تیکت|شناسه/.test(l)) return 'i-ticket';
+      if (/آسیب|بدافزار|CVE/i.test(l)) return 'i-bug';
+      if (/آدرس|URL|لینک/i.test(l)) return 'i-globe';
+      if (/وضعیت/.test(l)) return 'i-checkc';
+      if (/محصول|برنامه|ابزار|دستگاه/.test(l)) return 'i-cap';
+      return '';
+    },
+    /* بج رنگی برای مقادیر کلیدی (شدت/اولویت/وضعیت‌ها) */
+    badgeCls(label, val) {
+      if (!val) return '';
+      const l = label || '', v = String(val).trim();
+      if (/شدت|اولویت/.test(l)) {
+        if (v === 'کم') return 'fb-green';
+        if (v === 'متوسط') return 'fb-amber';
+        if (v === 'زیاد' || v === 'بالا' || v === 'بسیار زیاد') return 'fb-red';
+        if (v === 'بحرانی' || v === 'فوری') return 'fb-crit';
+        return '';
+      }
+      if (/وضعیت/.test(l)) {
+        const m = {
+          'انجام شده': 'fb-green', 'تایید': 'fb-green', 'رفع‌شده': 'fb-green',
+          'انجام کامل شد': 'fb-green', 'بسته': 'fb-green',
+          'در حال انجام': 'fb-amber', 'در حال بررسی': 'fb-amber', 'در حال رفع': 'fb-amber',
+          'بررسی شده': 'fb-blue', 'اطلاع‌رسانی شده': 'fb-blue', 'ریسک پذیرفته‌شده': 'fb-blue',
+          'باز': 'fb-red', 'عدم تایید': 'fb-red', 'بررسی نشده': 'fb-red',
+        };
+        return m[v] || '';
+      }
+      return '';
+    },
     fmtKb(kb) {
       kb = +kb || 0;
       if (kb >= 1024 * 10) return fa((kb / 1024).toFixed(1)) + ' مگابایت';
@@ -69,35 +115,34 @@ export default {
       <div class="vhead">
         <div class="dtile"><svg class="ic i23"><use :href="'#'+p.icon"/></svg></div>
         <div class="vhead-t">
-          <div class="fs16 fw8 ink1 vt">{{ p.title }}</div>
           <div class="mute vd"><svg class="ic dic"><use :href="'#'+p.icon"/></svg>{{ p.domain }}</div>
         </div>
-        <span class="badge" :class="stClass(p.status)">{{ p.status }}</span>
+        <span class="badge vbadge-lg" :class="stClass(p.status)">{{ p.status }}</span>
       </div>
       <div class="vchips">
         <span class="vchip"><svg class="ic i14"><use href="#i-user"/></svg>{{ p.expert }}</span>
-        <span class="vchip" v-if="p.creator"><svg class="ic i14"><use href="#i-pencil"/></svg>ثبت‌کننده: {{ p.creator }}</span>
+        <span class="vchip" v-if="p.creator && p.admin"><svg class="ic i14"><use href="#i-pencil"/></svg>ثبت‌کننده: {{ p.creator }}</span>
         <span class="vchip" v-if="p.date_fa"><svg class="ic i14"><use href="#i-cal"/></svg>{{ p.date_fa }}</span>
         <span class="vchip" v-if="p.ticket"><svg class="ic i14"><use href="#i-ticket"/></svg>{{ p.ticket }}</span>
       </div>
 
       <template v-if="!hasVal"><div class="vempty mute">برای این فعالیت هنوز داده‌ای در فیلدهای فرم ثبت نشده است.</div></template>
-      <div v-for="(s, si) in sections" :key="si" class="vsec">
-        <div class="sec-kicker" v-if="s.name"><svg class="ic i14"><use :href="'#'+s.icon"/></svg> {{ s.name }}</div>
-        <div class="sec-kicker" v-else><svg class="ic i14"><use href="#i-doc"/></svg> اطلاعات اصلی</div>
-        <div class="vgrid" v-if="s.small.length">
-          <div class="vrow" v-for="r in s.small" :key="s.name+r.label">
-            <span class="vk">{{ r.label }}</span>
-            <span class="vr" :class="{empty: !r.val}">
-              <a v-if="r.dl" :href="r.dl" class="vfilechip"><svg class="ic i14"><use href="#i-download"/></svg>{{ r.val }}</a>
+      <div v-for="(s, si) in sections" :key="si" class="scard">
+        <div class="scard-head"><svg class="ic i14"><use :href="'#'+(s.icon || 'i-doc')"/></svg> {{ secTitle(s) }}</div>
+        <div class="fgrid" v-if="s.small.length">
+          <div class="fcell" v-for="r in s.small" :key="s.name+r.label">
+            <div class="fl"><svg class="ic i14" v-if="fIcon(r.label)"><use :href="'#'+fIcon(r.label)"/></svg>{{ r.label }}</div>
+            <div class="fv" :class="{empty: !r.val}">
+              <span v-if="r.val && badgeCls(r.label, r.val)" class="fbadge" :class="badgeCls(r.label, r.val)">{{ r.val }}</span>
+              <a v-else-if="r.dl" :href="r.dl" class="vfilechip"><svg class="ic i14"><use href="#i-download"/></svg>{{ r.val }}</a>
               <template v-else-if="r.val">{{ r.val }}</template>
               <template v-else>—</template>
-            </span>
+            </div>
           </div>
         </div>
         <div class="vbig" v-for="r in s.big" :key="'b'+s.name+r.label">
-          <div class="vk vk-big">{{ r.label }}</div>
-          <div class="vbox prew" :class="{empty: !r.val}">{{ r.val || '—' }}</div>
+          <div class="fl flb">{{ r.label }}</div>
+          <div class="vdesc prew" :class="{empty: !r.val}">{{ r.val || '—' }}</div>
         </div>
       </div>
     </div>

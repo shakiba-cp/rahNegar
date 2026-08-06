@@ -6,13 +6,15 @@
 {% if g.user['id'] == a['user_id'] and a['status'] != 'انجام شده' %}
 <form method="post" action="{{ url_for('activity_complete', activity_id=a['id']) }}"><button class="btn ok sm"><svg class="ic"><use href="#i-check"/></svg> انجام شد</button></form>
 {% endif %}
+{% if perms.add %}<a class="btn ghost sm" href="{{ url_for('activity_new', domain_id=a['domain_id'], copy_from=a['id']) }}"><svg class="ic"><use href="#i-copy"/></svg> کپی فعالیت</a>{% endif %}
 {% if perms.edit %}<a class="btn pri sm" href="{{ url_for('activity_edit', activity_id=a['id']) }}"><svg class="ic"><use href="#i-pencil"/></svg> ویرایش</a>{% endif %}
 {% if perms.delete %}
 <form method="post" action="{{ url_for('activity_delete', activity_id=a['id']) }}" onsubmit="return confirm('حذف این فعالیت؟')"><button class="btn danger sm"><svg class="ic"><use href="#i-trash"/></svg> حذف</button></form>
 {% endif %}
 {% endblock %}
 {% block content %}
-{% if a['created_by'] and creator and a['created_by'] != a['user_id'] %}
+{# سرنخ تخصیص تسک (از کجا/برای چه) فقط برای مدیر — درخواست: کارشناسان این بخش را نبینند #}
+{% if g.user['role']=='admin' and a['created_by'] and creator and a['created_by'] != a['user_id'] %}
 <div class="flash warning"><svg class="ic"><use href="#i-alert"/></svg><span>تسک تخصیص‌یافته از «{{ creator['full_name'] }}» به «{{ a['expert_name'] }}»</span></div>
 {% if a['task_note'] %}
 <div class="tnote">

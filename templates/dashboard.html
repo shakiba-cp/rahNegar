@@ -22,15 +22,18 @@
 </div>
 </div>
 
-<div class="grid c2">
+{# تاریخچه ورودهای Excel فقط برای مدیر — کارشناس آن را نمی‌بیند (حریم خصوصی) #}
+<div class="grid{% if g.user['role']=='admin' %} c2{% endif %}">
   <div class="card">
     <h3><svg class="ic"><use href="#i-clock"/></svg> آخرین فعالیت‌ها<span class="h3-sub">۵ فعالیت اخیر{% if g.user['role']!='admin' %} (شما){% endif %}</span></h3>
     <div id="dash-acts" v-cloak></div>
   </div>
+  {% if g.user['role']=='admin' %}
   <div class="card">
     <h3><svg class="ic"><use href="#i-inbox"/></svg> آخرین ورودهای Excel<span class="h3-sub">۵ ورود اخیر</span></h3>
     <div id="dash-ups" v-cloak></div>
   </div>
+  {% endif %}
 </div>
 
 <div class="card">

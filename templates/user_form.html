@@ -16,6 +16,11 @@
       <input type="text" name="full_name" value="{{ u['full_name'] if u else request.form.get('full_name','') }}" required>
     </div>
     <div class="mb-3">
+      <label>نام‌های مستعار کارشناس <span class="mute">(اختیاری)</span></label>
+      <textarea name="aliases" rows="2" placeholder="مثلاً: رضایی">{{ u['aliases'] if u else request.form.get('aliases','') }}</textarea>
+      <div class="mute mt-1">اگر نام این کارشناس در فایل‌های اکسل به شکل دیگری نوشته می‌شود (مثل فقط فامیلی) این‌جا بنویسید تا در نمودارها و گزارش‌ها یکی شمرده شود؛ با ویرگول یا در هر خط جدا کنید.</div>
+    </div>
+    <div class="mb-3">
       <label>نقش</label>
       <select name="role">
         {% set r = (request.form.get('role') if request.method == 'POST' else (u['role'] if u else 'expert')) %}
@@ -23,6 +28,17 @@
         <option value="admin" {{ 'selected' if r=='admin' }}>مدیر — دسترسی کامل</option>
       </select>
       {% if self_edit %}<div class="mute mt-1">کاربر مدیر فعلی نمی‌تواند نقش خود را کاهش دهد.</div>{% endif %}
+    </div>
+    <div class="mb-3">
+      <label>بخش <span class="mute fs11">(دسترسی به حوزه‌ها بر اساس بخش کاربر محدود می‌شود)</span></label>
+      {% set cur_org = request.form.get('org_id','') if request.method == 'POST' else ((u['org_id'] or '') if u else '') %}
+      <select name="org_id">
+        <option value="" {{ 'selected' if cur_org == '' }}>همه بخش‌ها — همهٔ حوزه‌ها دیده می‌شود</option>
+        {% for o in orgs %}
+        <option value="{{ o['id'] }}" {{ 'selected' if cur_org|string == o['id']|string }}>{{ o['name'] }} — فقط حوزه‌های این بخش</option>
+        {% endfor %}
+      </select>
+      <div class="mute mt-1">اگر بخش انتخاب شود، این کاربر (در صورت کارشناس بودن) فقط حوزه‌های همان بخش را در فهرست‌ها، ثبت فعالیت، ورود Excel و گزارش‌ها می‌بیند.</div>
     </div>
     <input type="hidden" name="perm_form" value="1">
     <div class="mb-3">
@@ -66,11 +82,14 @@
   'self_edit': self_edit,
   'username': u['username'] if u else request.form.get('username',''),
   'full_name': u['full_name'] if u else request.form.get('full_name',''),
+  'aliases': u['aliases'] if u else request.form.get('aliases',''),
   'role': request.form.get('role') if request.method == 'POST' else (u['role'] if u else 'expert'),
   'perms': {'can_add': ck('can_add')|int, 'can_edit': ck('can_edit')|int,
             'can_delete': ck('can_delete')|int, 'can_import': ck('can_import')|int},
   'is_trainee': (1 if (request.form.get('is_trainee') if request.method == 'POST' else (u['is_trainee'] if u else 0)) else 0),
   'supervisor_id': (request.form.get('supervisor_id','') if request.method == 'POST' else ((u['supervisor_id'] or '') if u else ''))|string,
+  'org_id': (request.form.get('org_id','') if request.method == 'POST' else ((u['org_id'] or '') if u else ''))|string,
+  'orgs': orgs_json,
   'sups': sups_json,
   'back_url': url_for('users')
 }|tojson_script }}</script>

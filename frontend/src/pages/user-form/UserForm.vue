@@ -16,6 +16,7 @@ export default {
       fname: p.full_name || '',
       al: p.aliases || '',
       role: p.role || 'expert',
+      org: p.org_id != null && p.org_id !== '' ? String(p.org_id) : '',
       pwd: '',
       pm: {
         can_add: !!((p.perms || {}).can_add),
@@ -57,6 +58,14 @@ export default {
         <option value="admin">مدیر — دسترسی کامل</option>
       </select>
       <div v-if="p.self_edit" class="mute mt-1">کاربر مدیر فعلی نمی‌تواند نقش خود را کاهش دهد.</div>
+    </div>
+    <div class="mb-3">
+      <label>بخش <span class="mute fs11">(دسترسی کاربر به حوزه‌ها)</span></label>
+      <select name="org_id" v-model="org">
+        <option value="">همه بخش‌ها — همهٔ حوزه‌ها دیده می‌شود</option>
+        <option v-for="o in (p.orgs || [])" :key="o.id" :value="String(o.id)">{{ o.name }} — فقط حوزه‌های این بخش</option>
+      </select>
+      <div class="mute mt-1">اگر بخش انتخاب شود، این کاربر (در صورت کارشناس بودن) فقط حوزه‌های همان بخش را در فهرست‌ها، ثبت فعالیت، ورود Excel و گزارش‌ها می‌بیند.</div>
     </div>
     <input type="hidden" name="perm_form" value="1">
     <div class="mb-3">

@@ -668,7 +668,11 @@ c.get("/logout"); login("reza", "123456")  # رضا مالک تسک است
 r = c.get("/activities")
 check("بج تسک در لیست کارشناس", "تسک".encode() in r.data)
 r = c.get(f"/activities/{tid}")
-check("برچسب تسک در صفحه فعالیت", "تخصیص‌یافته".encode() in r.data)
+# راهنمای «جواب تسک» در فرم پاسخ کارشناس هست، ولی سرنخ داخلی تخصیص (تخصیص‌یافته از...)
+# دیگر برای کارشناس نمایش داده نمی‌شود
+check("respond_hint برای کارشناسِ مالک تسک فعال است", '"respond_hint": true' in r.data.decode())
+check("سرنخ داخلی تخصیص و نام ثبت‌کننده برای کارشناس پنهان است",
+      "تسک تخصیص‌یافته".encode() not in r.data and '"creator": ""' in r.data.decode())
 r = c.post(f"/activities/{tid}/respond", data={"body": "ارزیابی انجام شد، گزارش ضمیمه شد."},
            follow_redirects=True)
 check("ثبت پاسخ توسط کارشناس", "پاسخ ثبت شد".encode() in r.data
@@ -957,6 +961,131 @@ c.get("/logout"); login("reza", "123456")
 r = c.get("/files")
 check("کارشناس فقط فایل‌های فعالیت‌های خودش را می‌بیند",
       r.status_code == 200 and "report-final.pdf".encode() not in r.data)
+c.get("/logout"); login("admin", "admin123")
+
+# ---------- کپی فعالیت: فرم ثبت جدید با مقادیر رکورد مبدأ پیش‌پر می‌شود ----------
+r = c.get(f"/activities/new?domain_id={dom['id']}&copy_from={aid}")
+check("کپی فعالیت: فرم ثبت با مقادیر مبدأ پیش‌پر می‌شود",
+      r.status_code == 200 and "new.example.com".encode() in r.data, r.status_code)
+check("کپی فعالیت: اعلان «کپی شد» نمایش داده می‌شود", "کپی شد".encode() in r.data)
+with A.app.app_context():
+    _n_cp = A.get_db().execute("SELECT COUNT(*) c FROM activities").fetchone()["c"]
+r = c.post(f"/activities/new?domain_id={dom['id']}", data=payload, follow_redirects=True)
+with A.app.app_context():
+    _n_cp2 = A.get_db().execute("SELECT COUNT(*) c FROM activities").fetchone()["c"]
+check("ثبت رکورد تازه از روی فرم کپی‌شده", _n_cp2 == _n_cp + 1
+      and "موفقیت".encode() in r.data, (_n_cp, _n_cp2))
+
+# ---------- صفحه‌های خالی PDF: در چاپ گرید نمودارها به بلوک تبدیل می‌شود ----------
+with open("static/css/print.css", encoding="utf-8") as _f:
+    _pcss = _f.read()
+check("چاپ: گرید نمودارها در حالت print به بلوک تبدیل می‌شود (رفع صفحهٔ خالی)",
+      ".charts{display:block}" in _pcss, _pcss[-400:])
+
+# ---------- اتصال کاربر به «بخش»: کاربر فقط حوزه‌های بخش خودش را می‌بیند ----------
+with A.app.app_context():
+    _org_k = A.get_db().execute("SELECT id FROM orgs WHERE name='کاشف'").fetchone()["id"]
+r = c.post("/domains", data={"name": "رصد اختصاصی کاشف", "org_id": str(_org_k)},
+           follow_redirects=True)
+check("ساخت حوزه در بخش کاشف", "حوزه جدید افزوده شد".encode() in r.data)
+with A.app.app_context():
+    _kd = A.get_db().execute("SELECT id FROM domains WHERE name='رصد اختصاصی کاشف'").fetchone()["id"]
+r = c.post("/users/new", data={"username": "ka_user", "full_name": "کارشناس کاشف",
+                               "password": "123456", "role": "expert", "perm_form": "1",
+                               "can_add": "1", "can_edit": "1", "can_import": "1",
+                               "org_id": str(_org_k)}, follow_redirects=True)
+check("ساخت کاربر متصل به بخش کاشف", "کاربر ایجاد شد".encode() in r.data)
+with A.app.app_context():
+    _ka = A.get_db().execute("SELECT org_id FROM users WHERE username='ka_user'").fetchone()
+check("بخش کاربر در دیتابیس ذخیره شد", _ka and _ka["org_id"] == _org_k,
+      _ka["org_id"] if _ka else None)
+c.get("/logout"); login("ka_user", "123456")
+r = c.get("/activities/new")
+check("انتخابگر حوزه: کاربر بخش‌دار فقط حوزه‌های بخش خودش را می‌بیند",
+      "رصد اختصاصی کاشف".encode() in r.data and "ارزیابی امنیتی وب".encode() not in r.data)
+r = c.get(f"/activities/new?domain_id={dom['id']}")
+check("فرم ثبت حوزه خارج از بخش کاربر در دسترس نیست (۴۰۴)", r.status_code == 404, r.status_code)
+r = c.get(f"/activities/new?domain_id={_kd}")
+check("فرم ثبت حوزه بخش خود کاربر باز است", r.status_code == 200
+      and "رصد اختصاصی کاشف".encode() in r.data, r.status_code)
+r = c.get("/import")
+check("ورود Excel: فقط حوزه‌های بخش کاربر در لیست", "ارزیابی امنیتی وب".encode() not in r.data)
+r = c.get("/activities")
+check("لیست فعالیت‌ها: فیلتر حوزه فقط حوزه‌های بخش کاربر",
+      "ارزیابی امنیتی وب".encode() not in r.data)
+c.get("/logout"); login("admin", "admin123")
+r = c.get("/activities/new")
+check("مدیر همچنان همه حوزه‌ها را می‌بیند", "ارزیابی امنیتی وب".encode() in r.data)
+r = c.get("/users")
+check("ستون «بخش» در جدول کاربران", "\"org\": \"کاشف\"".encode() in r.data
+      or "کاشف".encode() in r.data, r.data[:100])
+
+# ---------- سبک‌بندی صفحه فعالیت: ردیف‌های نمایش رو به نمای خواناتر ----------
+with open("static/css/app.css", encoding="utf-8") as _f:
+    _acss = _f.read()
+check("نمایش فعالیت: طراحی جدید فیلدها (شبکه فشرده + بج رنگی + بلوک توضیح)",
+      ".fgrid{display:grid" in _acss and ".fbadge{" in _acss
+      and "minmax(230px,1fr)" in _acss and ".vdesc{" in _acss, "")
+
+# ---------- حریم خصوصی صفحه فعالیت: «ثبت‌کننده»/سرنخ تسک فقط برای مدیر ----------
+with A.app.app_context():
+    _tsk = A.get_db().execute("""SELECT * FROM activities
+                                 WHERE created_by IS NOT NULL AND created_by != user_id
+                                 LIMIT 1""").fetchone()
+check("تسک تخصیص‌یافته در خودآزمایی موجود است", _tsk is not None)
+r = c.get(f"/activities/{_tsk['id']}")
+check("صفحه فعالیت برای مدیر: دادهٔ ثبت‌کننده و نشان «تسک تخصیص‌یافته» هست",
+      '"creator": "مدیر سامانه"' in r.data.decode()
+      and "تسک تخصیص‌یافته".encode() in r.data)
+with A.app.app_context():
+    _own = A.get_db().execute("SELECT username, role FROM users WHERE id=?",
+                              (_tsk["user_id"],)).fetchone()
+if _own and _own["role"] != "admin":
+    c.get("/logout"); login(_own["username"], "123456")
+    r = c.get(f"/activities/{_tsk['id']}")
+    check("صفحه فعالیت برای کارشناس: ثبت‌کننده/نشان تخصیص نمایش داده نمی‌شود",
+          r.status_code == 200 and "aview-data".encode() in r.data
+          and '"creator": ""' in r.data.decode()
+          and "تسک تخصیص‌یافته".encode() not in r.data, r.status_code)
+    c.get("/logout"); login("admin", "admin123")
+
+# ---------- هم‌ترازی نرم: حوزهٔ گمشده با همهٔ فیلدهایش برای ماهر بازسازی می‌شود ----------
+with A.app.app_context():
+    _db = A.get_db()
+    _gone = _db.execute("""SELECT d.id, d.name FROM domains d
+                           WHERE NOT EXISTS(SELECT 1 FROM activities a WHERE a.domain_id=d.id)
+                           ORDER BY d.id LIMIT 1""").fetchone()
+    _dnf = {f[0] for f in A.DOMAIN_FIELDS.get(_gone["name"], [])}
+    _db.execute("DELETE FROM form_fields WHERE domain_id=?", (_gone["id"],))
+    _db.execute("DELETE FROM domains WHERE id=?", (_gone["id"],))
+    _db.commit()
+    A.init_db()
+    _back = _db.execute("""SELECT d.id, o.name org FROM domains d
+                           LEFT JOIN orgs o ON o.id=d.org_id WHERE d.name=?""",
+                        (_gone["name"],)).fetchone()
+    _nf = _db.execute("SELECT COUNT(*) c FROM form_fields WHERE domain_id=?",
+                      (_back["id"],)).fetchone()["c"] if _back else 0
+check("حوزهٔ گمشده با همهٔ فیلدهایش برای بخش ماهر بازسازی می‌شود",
+      _back is not None and _back["org"] == "ماهر" and _nf >= len(A.DOMAIN_FIELDS[_gone["name"]]),
+      (_gone["name"], _nf, len(A.DOMAIN_FIELDS[_gone["name"]])))
+
+# ---------- حریم خصوصی داشبورد: «آخرین ورودهای Excel» فقط برای مدیر ----------
+c.get("/logout"); login("admin", "admin123")
+r = c.get("/")
+check("داشبورد مدیر: کارت «آخرین ورودهای Excel» دیده می‌شود",
+      "آخرین ورودهای Excel".encode() in r.data)
+r = c.get("/api/dashboard")
+check("API داشبورد مدیر: کلید last_uploads موجود است",
+      r.status_code == 200 and "last_uploads" in r.get_json())
+c.get("/logout"); login("reza", "123456")
+r = c.get("/")
+check("داشبورد کارشناس: کارت «آخرین ورودهای Excel» حذف شده است",
+      "آخرین ورودهای Excel".encode() not in r.data)
+check("داشبورد کارشناس: کارت «آخرین فعالیت‌ها» همچنان هست",
+      'id="dash-acts"'.encode() in r.data)
+r = c.get("/api/dashboard")
+check("API داشبورد کارشناس: last_uploads خالی برمی‌گردد",
+      r.get_json().get("last_uploads") == [])
 c.get("/logout"); login("admin", "admin123")
 
 print(f"\n✅ همه {len(ok)} تست موفقیت‌آمیز بود.")

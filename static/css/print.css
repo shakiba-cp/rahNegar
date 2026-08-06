@@ -67,4 +67,10 @@ body{padding-top:64px}
   .la-fade{opacity:1!important;animation:none!important}
   .chart-in,.barpop{animation:none!important;opacity:1!important}
   .chart-card{box-shadow:none!important}
+  /* گرید CSS با صفحه‌بندی چاپ قاطی می‌شد و صفحه‌های خالی زیادی می‌ساخت؛
+     در چاپ به بلوکِ ساده تبدیل می‌شود تا درست روی صفحه پخش شود */
+  .charts{display:block}
+  .chart-card{margin:0 0 14px;break-inside:avoid;page-break-inside:avoid}
+  .kpis{break-inside:avoid;page-break-inside:avoid}
+  .kpis,.charts{margin-bottom:12px}
 }

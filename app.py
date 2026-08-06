@@ -209,7 +209,7 @@ DOMAIN_FIELDS = {
 
 app = Flask(__name__)
 # نسخه دارایی‌های استاتیک برای شکستن کش مرورگر بعد از هر آپدیت (cache-busting)
-ASSET_V = "6.5.4"
+ASSET_V = "6.5.7"
 app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
 # تقویت امنیت کوکی نشست — Secure را هنگام HTTPS با متغیر محیطی SECURE_COOKIE=1 فعال کنید
 app.config["SESSION_COOKIE_HTTPONLY"] = True
@@ -459,6 +459,11 @@ def init_db():
                                        WHERE name='ارزیابی امنیتی وب' LIMIT 1)""")
     except sqlite3.OperationalError:
         pass
+    # مهاجرت نرم: اتصال کاربر به «بخش» (org) — NULL یعنی همه بخش‌ها (رفتار قبلی)
+    try:
+        db.execute("ALTER TABLE users ADD COLUMN org_id INTEGER")
+    except sqlite3.OperationalError:
+        pass
     # افزودن فرمت csv به فهرست فرمت‌های مجاز پیوست برای پایگاه‌های موجود
     _fmts = get_setting("allowed_formats", "") or ""
     if "csv" not in [e.strip() for e in _fmts.lower().split(",") if e.strip()]:
@@ -488,10 +493,24 @@ def init_db():
     _retitle("ارزیابی امنیتی اندروید", "کارفرما", "برنامه")
     # هم‌ترازی افزودنی حوزه‌ها با نسخهٔ جدید: فیلدهای تعریف‌شدهٔ جدید (مثل «شناسه فرآیند»)
     # به حوزه‌های موجود اضافه می‌شوند — هیچ فیلدی حذف یا تغییرنام نمی‌یابد تا داده‌ها سالم بمانند.
+    # اگر خودِ حوزه اصلاً وجود نداشته باشد، با همهٔ فیلدهایش ساخته می‌شود (درخواست:
+    # «۱۳ حوزه کامل برای ماهر باشد») — کاملاً افزودنی و بدون دست‌کاری داده‌های موجود.
     try:
         for _name, _defs in DOMAIN_FIELDS.items():
             _dom = db.execute("SELECT id FROM domains WHERE name=?", (_name,)).fetchone()
             if not _dom:
+                _mxo = db.execute("SELECT COALESCE(MAX(sort_order),0) m FROM domains").fetchone()["m"]
+                _cur = db.execute("INSERT INTO domains(name,sort_order,org_id) VALUES(?,?,?)",
+                                  (_name, _mxo + 1, _mah))
+                _fields_new = [list(f) for f in _defs]
+                if not any(f[2] == "ticket" for f in _fields_new):
+                    _fields_new.append(("شماره تیکت", "text", "ticket", [], 0, ""))
+                for _j, (_label, _ftype, _fkey, _opts, _req, _sec) in enumerate(
+                        _fields_new + list(COMMON_FIELDS), start=1):
+                    db.execute("INSERT INTO form_fields(domain_id,label,field_key,field_type,"
+                               "section,options,required,sort_order) VALUES(?,?,?,?,?,?,?,?)",
+                               (_cur.lastrowid, _label, _fkey, _ftype, _sec,
+                                json.dumps(_opts, ensure_ascii=False), _req, _j))
                 continue
             _have = {r["label"] for r in db.execute(
                 "SELECT label FROM form_fields WHERE domain_id=?", (_dom["id"],))}
@@ -607,6 +626,33 @@ def get_domain_or_404(domain_id):
     if not row:
         abort(404)
     return row
+
+
+def user_org_id(u):
+    """شناسه «بخش» کاربر یا None (None یعنی دسترسی به همه بخش‌ها)."""
+    try:
+        return u["org_id"] if u["org_id"] else None
+    except (KeyError, IndexError):
+        return None
+
+
+def scoped_domains(user=None):
+    """حوزه‌های قابل‌مشاهده برای کاربر: مدیر و کاربرِ بدون «بخش» همه را می‌بینند؛
+    کاربرِ کارشناسِ دارای بخش فقط حوزه‌های بخش خودش (درخواست: ابتدا بخش انتخاب
+    شود و هرکس فقط حوزه‌های همان بخش را ببیند)."""
+    u = user or getattr(g, "user", None)
+    q = """SELECT d.*, o.name org_name FROM domains d
+           LEFT JOIN orgs o ON o.id=d.org_id WHERE d.is_active=1"""
+    tail = " ORDER BY COALESCE(o.sort_order,99), d.sort_order, d.id"
+    oid = user_org_id(u) if u else None
+    if u is None or u["role"] == "admin" or not oid:
+        return get_db().execute(q + tail).fetchall()
+    return get_db().execute(q + " AND d.org_id=? ORDER BY d.sort_order, d.id",
+                            (oid,)).fetchall()
+
+
+def domain_in_scope(domain_id):
+    return any(d["id"] == domain_id for d in scoped_domains())
 
 
 def domain_icon(name):
@@ -754,6 +800,10 @@ def build_filters():
     if u["role"] != "admin":
         where.append("a.user_id=?")
         params.append(u["id"])
+        # کاربرِ متصل به یک «بخش»: فقط فعالیت‌های حوزه‌های همان بخش
+        if user_org_id(u):
+            where.append("a.domain_id IN (SELECT id FROM domains WHERE org_id=?)")
+            params.append(user_org_id(u))
     dom = args.get("domain", type=int)
     if dom:
         where.append("a.domain_id=?")
@@ -1130,10 +1180,11 @@ def dashboard_payload():
     prev_month = m_counts.get(f"{_py:04d}-{_pm:02d}", 0)
     month_delta = this_month - prev_month
     users_c = db.execute("SELECT COUNT(*) c FROM users WHERE is_active=1").fetchone()["c"]
-    last_uploads = db.execute("""
+    # حریم خصوصی: تاریخچه ورودهای Excel فقط برای مدیر — کارشناس اصلاً داده‌ای دریافت نمی‌کند
+    last_uploads = (db.execute("""
         SELECT e.*, d.name domain_name, u.full_name FROM excel_imports e
         LEFT JOIN domains d ON d.id=e.domain_id LEFT JOIN users u ON u.id=e.user_id
-        ORDER BY e.id DESC LIMIT 5""").fetchall()
+        ORDER BY e.id DESC LIMIT 5""").fetchall() if u["role"] == "admin" else [])
     # تفکیک کارشناس بر اساس «نام نمایشی»: همان نامی که در فیلد کارشناسِ فعالیت ثبت
     # شده (حتی اگر در فهرست کاربران سامانه نباشد)؛ نام مدیران سامانه حذف می‌شود.
     per_expert = db.execute(f"""
@@ -1245,8 +1296,7 @@ def activities():
 
     # همه ردیف‌های مطابق فیلتر برای جدول تعاملی Vue (جستجو/مرتب‌سازی/صفحه‌بندی سمت کلاینت)
     acts = query_activities(where, params)
-    domains = get_db().execute("SELECT * FROM domains WHERE is_active=1 "
-                               "ORDER BY sort_order, id").fetchall()
+    domains = scoped_domains()
     users = get_db().execute("SELECT id,full_name FROM users WHERE is_active=1 "
                              "ORDER BY full_name").fetchall()
     # داده‌های JSON برای رندر سمت کلاینت با Vue 3 (افزودنی)
@@ -1285,17 +1335,15 @@ def activities():
 def activity_new():
     db = get_db()
     domain_id = request.values.get("domain_id", type=int)
-    domains = db.execute("""SELECT d.*, o.name org_name FROM domains d
-                            LEFT JOIN orgs o ON o.id=d.org_id
-                            WHERE d.is_active=1
-                            ORDER BY COALESCE(o.sort_order,99), d.sort_order, d.id""").fetchall()
+    # فقط حوزه‌های بخش کاربر (کاربرِ دارای بخش، «سایر»/بخش‌های دیگر را نمی‌بیند)
+    domains = scoped_domains()
     if not domain_id:
         return render_template(
             "activity_new.html", domains=domains, domain=None, icons=DOMAIN_ICONS,
             domains_json=[{"id": d["id"], "name": d["name"], "org": d["org_name"] or "سایر",
                            "icon": domain_icon(d["name"])} for d in domains])
     domain = get_domain_or_404(domain_id)
-    if not domain["is_active"]:
+    if not domain["is_active"] or not domain_in_scope(domain_id):
         abort(404)
     fields = get_fields(domain_id)
     if request.method == "POST":
@@ -1329,14 +1377,47 @@ def activity_new():
                    if owner_id != g.user["id"] else "."), "success")
             return redirect(url_for("activity_view", activity_id=cur.lastrowid))
     defaults, dvals = {}, {}
+    posted = dict(request.form)
+    # «کپی فعالیت»: /activities/new?domain_id=X&copy_from=Y → فرم ثبت جدید با
+    # مقادیر همان فعالیت پر می‌شود (فایل‌ها کپی نمی‌شوند) — فقط افزودنی
+    if request.method == "GET":
+        _cf = request.args.get("copy_from", type=int)
+        if _cf:
+            _src = get_activity_or_404(_cf)
+            if _src["domain_id"] == domain_id and own_or_admin(_src):
+                _svals = {r["field_id"]: r["value"] for r in db.execute(
+                    "SELECT field_id,value FROM activity_values WHERE activity_id=?",
+                    (_cf,))}
+                _has_file = False
+                for f in fields:
+                    v = _svals.get(f["id"])
+                    if v in (None, ""):
+                        continue
+                    if f["field_type"] == "file":
+                        _has_file = True
+                        continue  # فایل‌ها به رکورد کپی نمی‌شوند؛ کاربر دوباره آپلود می‌کند
+                    if f["field_type"] == "date":
+                        try:
+                            jy, jm, jd = jalali.g2j(
+                                *[int(x) for x in str(v)[:10].split("-")])
+                        except (ValueError, TypeError):
+                            continue
+                        dvals[f["id"]] = {"y": str(jy), "m": f"{jm:02d}", "d": f"{jd:02d}"}
+                    else:
+                        posted[f"f{f['id']}"] = v
+                posted["status"] = _src["status"] if _src["status"] in STATUSES else STATUSES[0]
+                posted["owner_id"] = str(_src["user_id"])
+                flash("مقادیر فیلدها از رکورد مبدأ کپی شد" +
+                      ("؛ فایل‌های پیوست منتقل نمی‌شوند (دوباره آپلود کنید)" if _has_file else "") +
+                      " — پس از بررسی، «ثبت فعالیت» را بزنید.", "success")
     for f in fields:
-        if f["field_key"] == "expert" and not request.form.get(f"f{f['id']}"):
+        if f["field_key"] == "expert" and not posted.get(f"f{f['id']}"):
             defaults[f["id"]] = g.user["full_name"]
-        if f["field_type"] == "date":
+        if f["field_type"] == "date" and f["id"] not in dvals:
             y, m, d = jalali.today_jalali()
-            posted = {k: request.form.get(f"f{f['id']}__{k}", "")
-                      for k in ("y", "m", "d")}
-            dvals[f["id"]] = {k: posted[k] or v for k, v in
+            _tr = {k: request.form.get(f"f{f['id']}__{k}", "")
+                   for k in ("y", "m", "d")}
+            dvals[f["id"]] = {k: _tr[k] or v for k, v in
                               (("y", str(y)), ("m", f"{m:02d}"), ("d", f"{d:02d}"))}
     users = []
     if g.user["role"] == "admin":
@@ -1346,7 +1427,7 @@ def activity_new():
                            fields=fields, groups=grouped_fields(fields),
                            defaults=defaults, dvals=dvals, users=users,
                            fields_json=_fields_json(fields),
-                           posted=dict(request.form),
+                           posted=posted,
                            users_json=[{"id": x["id"], "full_name": x["full_name"]}
                                        for x in users],
                            domains_json=[{"id": d["id"], "name": d["name"],
@@ -1400,11 +1481,14 @@ def activity_view(activity_id):
                              if f["field_type"] == "file" else "")}
                      for f in fs],
         })
+    # ثبت‌کننده/سرنخ تخصیص فقط برای مدیر دیده می‌شود (درخواست: «به‌جز مدیر کاربران نبینند»)
+    _is_admin = g.user["role"] == "admin"
     view_json = {
         "title": a["title"] or "بدون عنوان",
         "domain": a["domain_name"], "icon": domain_icon(a["domain_name"]),
         "status": a["status"], "expert": _canon_expert((a["expert_txt"] or a["expert_name"]) if "expert_txt" in a.keys() else a["expert_name"]),
-        "creator": creator["full_name"] if creator else "",
+        "admin": _is_admin,
+        "creator": (creator["full_name"] if creator else "") if _is_admin else "",
         "flagged": bool(a["flagged"]) if "flagged" in a.keys() else False,
         "date_fa": _jdate(a["date"]) if a["date"] else "",
         "ticket": a["ticket"] or "",
@@ -1798,6 +1882,9 @@ def files_page():
     if g.user["role"] != "admin":
         where.append("a.user_id=?")
         params.append(g.user["id"])
+        if user_org_id(g.user):
+            where.append("a.domain_id IN (SELECT id FROM domains WHERE org_id=?)")
+            params.append(user_org_id(g.user))
     if dom:
         where.append("a.domain_id=?")
         params.append(dom)
@@ -1825,8 +1912,7 @@ def files_page():
         "domain": r["domain_name"], "user": r["full_name"] or "—",
         "dl": url_for("attachment_download", att_id=r["id"]),
     } for r in rows]
-    domains = db.execute("SELECT id, name FROM domains WHERE is_active=1"
-                         " ORDER BY sort_order, id").fetchall()
+    domains = scoped_domains()
     orgs = db.execute("SELECT id, name FROM orgs WHERE is_active=1 ORDER BY sort_order, id").fetchall()
     return render_template("files.html", items=items, total_n=total_n,
                            total_size=jalali.fa(_fmt_size(total_size)),
@@ -1977,13 +2063,15 @@ def export_excel(acts, filename="activities.xlsx", title="گزارش فعالی�
 @perm_required("can_import")
 def import_excel():
     db = get_db()
-    domains = db.execute("SELECT * FROM domains WHERE is_active=1 "
-                         "ORDER BY sort_order, id").fetchall()
+    domains = scoped_domains()
     if request.method == "POST":
         if load_workbook is None:
             flash("کتابخانه openpyxl نصب نیست؛ ورود از Excel ممکن نیست.", "error")
             return redirect(url_for("import_excel"))
         domain_id = request.form.get("domain_id", type=int)
+        if domain_id and not domain_in_scope(domain_id):
+            flash("این حوزه برای حساب شما فعال نیست.", "error")
+            return redirect(url_for("import_excel"))
         f = request.files.get("file")
         if not domain_id:
             flash("حوزه را انتخاب کنید.", "error")
@@ -2608,8 +2696,7 @@ def reports():
                                back_url=url_for("reports"),
                                pt_summary=pt_summary, pt_groups=pt_groups,
                                sys_name=get_setting("system_name"))
-    domains = db.execute("SELECT * FROM domains WHERE is_active=1 "
-                         "ORDER BY sort_order, id").fetchall()
+    domains = scoped_domains()
     users = db.execute("SELECT id,full_name FROM users WHERE is_active=1 "
                        "ORDER BY full_name").fetchall()
     export_headers = export_rows(acts)[0] if acts else []
@@ -2707,7 +2794,8 @@ def users():
     rows = get_db().execute("""SELECT u.*, (SELECT COUNT(*) FROM activities a
             WHERE a.user_id=u.id) act_count,
             (SELECT COUNT(*) FROM users t WHERE t.supervisor_id=u.id AND t.is_active=1) trainee_count,
-            (SELECT s.full_name FROM users s WHERE s.id=u.supervisor_id) supervisor_name
+            (SELECT s.full_name FROM users s WHERE s.id=u.supervisor_id) supervisor_name,
+            (SELECT o.name FROM orgs o WHERE o.id=u.org_id) org_name
             FROM users u ORDER BY u.id""").fetchall()
     users_json = [{
         "id": u["id"], "username": u["username"], "full_name": u["full_name"],
@@ -2716,6 +2804,7 @@ def users():
         "is_trainee": bool(u["is_trainee"]),
         "trainee_count": u["trainee_count"],
         "supervisor_name": u["supervisor_name"] or "",
+        "org": u["org_name"] or "همه بخش‌ها", "org_id": u["org_id"] or 0,
         "can_add": bool(u["can_add"]), "can_edit": bool(u["can_edit"]),
         "can_delete": bool(u["can_delete"]), "can_import": bool(u["can_import"]),
         "edit": url_for("user_edit", user_id=u["id"]),
@@ -2766,17 +2855,23 @@ def user_new():
         elif is_trainee and request.form.get("supervisor_id") and not sup_id:
             flash("سرپرست انتخاب‌شده معتبر نیست.", "error")
         else:
+            org_id = request.form.get("org_id", type=int)
+            if org_id and not db.execute("SELECT 1 FROM orgs WHERE id=?", (org_id,)).fetchone():
+                org_id = None
             db.execute("INSERT INTO users(username,password_hash,full_name,role,"
                        "is_trainee,supervisor_id,can_add,can_edit,can_delete,can_import,"
-                       "aliases,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                       "aliases,org_id,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
                        (username, generate_password_hash(password), full_name, role,
                         is_trainee, sup_id, perms["can_add"], perms["can_edit"],
-                        perms["can_delete"], perms["can_import"], aliases, now_iso()))
+                        perms["can_delete"], perms["can_import"], aliases, org_id, now_iso()))
             db.commit()
             flash("کاربر ایجاد شد.", "success")
             return redirect(url_for("users"))
     sups = _sup_candidates(get_db(), -1)
-    return render_template("user_form.html", u=None, sups=sups,
+    _orgs = get_db().execute("SELECT id,name FROM orgs WHERE is_active=1 "
+                             "ORDER BY sort_order, id").fetchall()
+    return render_template("user_form.html", u=None, sups=sups, orgs=_orgs,
+                           orgs_json=[{"id": o["id"], "name": o["name"]} for o in _orgs],
                            sups_json=[{"id": x["id"], "full_name": x["full_name"],
                                        "username": x["username"]} for x in sups])
 
@@ -2805,8 +2900,11 @@ def user_edit(user_id):
         elif is_trainee and request.form.get("supervisor_id") and not sup_id:
             flash("سرپرست انتخاب‌شده معتبر نیست.", "error")
         else:
-            db.execute("UPDATE users SET full_name=?, role=?, aliases=? WHERE id=?",
-                       (full_name, role, aliases, user_id))
+            org_id = request.form.get("org_id", type=int)
+            if org_id and not db.execute("SELECT 1 FROM orgs WHERE id=?", (org_id,)).fetchone():
+                org_id = None
+            db.execute("UPDATE users SET full_name=?, role=?, aliases=?, org_id=? WHERE id=?",
+                       (full_name, role, aliases, org_id, user_id))
             if not is_self and request.form.get("perm_form"):
                 # نوع حساب، سرپرست و مجوزها (حساب خود مدیر و پست‌های قدیمی مستثنا)
                 db.execute("UPDATE users SET is_trainee=?, supervisor_id=?, can_add=?,"
@@ -2823,7 +2921,10 @@ def user_edit(user_id):
             flash("کاربر به‌روزرسانی شد.", "success")
             return redirect(url_for("users"))
     sups = _sup_candidates(db, user_id)
-    return render_template("user_form.html", u=u, sups=sups,
+    _orgs = db.execute("SELECT id,name FROM orgs WHERE is_active=1 "
+                       "ORDER BY sort_order, id").fetchall()
+    return render_template("user_form.html", u=u, sups=sups, orgs=_orgs,
+                           orgs_json=[{"id": o["id"], "name": o["name"]} for o in _orgs],
                            sups_json=[{"id": x["id"], "full_name": x["full_name"],
                                        "username": x["username"]} for x in sups])
 
