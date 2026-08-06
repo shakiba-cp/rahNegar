@@ -209,7 +209,7 @@ DOMAIN_FIELDS = {
 
 app = Flask(__name__)
 # نسخه دارایی‌های استاتیک برای شکستن کش مرورگر بعد از هر آپدیت (cache-busting)
-ASSET_V = "6.5.3"
+ASSET_V = "6.5.4"
 app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
 # تقویت امنیت کوکی نشست — Secure را هنگام HTTPS با متغیر محیطی SECURE_COOKIE=1 فعال کنید
 app.config["SESSION_COOKIE_HTTPONLY"] = True
@@ -973,12 +973,17 @@ def _band_weights(labels):
     return [round(w / tot * 100, 1) for w in ws]
 
 
-def report_print_tables(header, rows, acts):
-    """چیدمان جداول چاپ: به‌جای یک جدول عریضِ اجتماعِ همه حوزه‌ها (که از کاغذ
-    بیرون می‌زد و ستون‌ها را له می‌کرد)، برای هر حوزه جدول مجزا «فقط با
-    ستون‌های همان حوزه» و در باند‌های حداکثر ~۸ ستونه؛ فیلدهای متن‌بلد
-    (textarea) هرکدام جدول دوسطونهٔ جدا. ستونِ «حوزه» چون در تیتر گروه آمده
-    تکرار نمی‌شود. خروجی: (خلاصه|None, لیست گروه‌ها)"""
+def report_print_tables(header, rows, acts, simple=False):
+    """چیدمان جداول چاپ — بدون جدول «خلاصه کلی». دو حالت:
+
+    • simple=True (کاربر خودش ستون‌های خروجی را تیک زده): برای هر حوزه
+      **یک جدول تخت** با دقیقاً همان ستون‌های انتخابی — هیچ بندی و هیچ
+      تکراری (کاربر می‌گفت «فیلتر کردم چرا اطلاعات پایه و اصلی جداست»).
+    • پیش‌فرض: برای هر حوزه فقط ستون‌های خودش؛ اگر همه در ~۸ ستون جا شدند
+      **یک جدول واحد**، وگرنه باندهای جدا با ستون «عنوان» در ابتدای هر باند.
+      فیلدهای متن‌بلد (textarea) همیشه جدول دوسطونهٔ خودشان را دارند.
+
+    خروجی: (None, لیست گروه‌ها)"""
     db = get_db()
     # تعداد ستون‌های پایهٔ ابتدای header — مقاوم به حذفِ ستون «شماره تیکت»
     # (وقتی هیچ ردیفی تیکت ندارد آن ستون از header برداشته می‌شود؛ سابقاً همین
@@ -1003,10 +1008,8 @@ def report_print_tables(header, rows, acts):
                 (rr["label"], rr["field_type"], rr["section"] or ""))
     # برچسب‌های تعریف‌شده در هریک از حوزه‌های حاضر در گزارش
     defined_anywhere = {lbl for ls in lbl_info.values() for lbl, _t, _s in ls}
+    # جدول «خلاصه کلی — همه حوزه‌ها» به درخواست کاربر از خروجی حذف شد
     summary = None
-    if len(names) > 1 and base_n:
-        summary = {"header": header[:base_n], "rows": [r[:base_n] for r in rows],
-                   "weights": _band_weights(header[:base_n])}
     try:
         idc = header.index("عنوان")
     except ValueError:
@@ -1023,13 +1026,16 @@ def report_print_tables(header, rows, acts):
                  if ("domain_name" in a.keys() and a["domain_name"] == dn)]
         if not drows:
             continue
+        # ستون «حوزه» چون در تیتر گروه آمده، در خود جداول تکرار نمی‌شود
+        dom_col = 0 if (header and header[0] == "حوزه") else None
+        # حالت ساده: کاربر ستون‌ها را انتخاب کرده → یک جدول تختِ دقیقاً همان‌ها
+        if simple:
+            idxs = [i for i in range(len(header)) if i != dom_col]
+            groups.append({"name": dn, "rows_n": len(drows),
+                           "bands": [_mk_band(None, idxs)] if idxs else []})
+            continue
         bands = []
-        # باند اطلاعات پایه بدون ستون «حوزه» (در تیتر گروه هست)
-        base_idxs = list(range(base_n))
-        if base_idxs and header[base_idxs[0]] == "حوزه":
-            base_idxs = base_idxs[1:]
-        if base_idxs:
-            bands.append(_mk_band("اطلاعات پایه", base_idxs))
+        base_idxs = [i for i in range(base_n) if i != dom_col]
         used = set()
         short, long_cols = [], []
         # فقط و فقط فیلدهای تعریف‌شده برای همین حوزه
@@ -1046,22 +1052,31 @@ def report_print_tables(header, rows, acts):
             if (i not in used and header[i] not in defined_anywhere
                     and any(r[i] for r in drows)):
                 short.append((i, "")); used.add(i)
-        # خرد کردن فیلدهای کوتاه به باندهای ۷تایی — بدون عبور از مرز بخش‌ها —
-        # به انضمام ستون «عنوان» در ابتدای هر باند برای شناسایی رکورد
-        def _sec_cap(sec):
-            return ("مشخصات درخواست" if sec == SEC_REQUEST
-                    else ("مشخصات تحویل" if sec == SEC_DELIVERY else "اطلاعات اصلی"))
-        runs = []
-        for item in short:
-            if runs and runs[-1][0][1] == item[1]:
-                runs[-1].append(item)
-            else:
-                runs.append([item])
-        for run in runs:
-            for k in range(0, len(run), 7):
-                chunk = run[k:k + 7]
-                idxs = ([idc] if base_n and idc < base_n else []) + [i for i, _s in chunk]
-                bands.append(_mk_band(_sec_cap(chunk[0][1]), idxs))
+        # اگر همهٔ ستون‌های کوتاه + پایه در ~۸ ستون جا شدند، یک جدول واحد
+        # بساز (بدون باندبندی و بدون تکرار ستون «عنوان» در چند جدول)
+        field_idxs = [i for i, _s in short]
+        merged = base_idxs + [i for i in field_idxs if i not in base_idxs]
+        if merged and len(merged) <= 8:
+            bands.append(_mk_band(None, merged))
+        else:
+            if base_idxs:
+                bands.append(_mk_band("اطلاعات پایه", base_idxs))
+            # خرد کردن فیلدهای کوتاه به باندهای ۷تایی — بدون عبور از مرز
+            # بخش‌ها — به انضمام ستون «عنوان» در ابتدای هر باند برای شناسایی رکورد
+            def _sec_cap(sec):
+                return ("مشخصات درخواست" if sec == SEC_REQUEST
+                        else ("مشخصات تحویل" if sec == SEC_DELIVERY else "اطلاعات اصلی"))
+            runs = []
+            for item in short:
+                if runs and runs[-1][0][1] == item[1]:
+                    runs[-1].append(item)
+                else:
+                    runs.append([item])
+            for run in runs:
+                for k in range(0, len(run), 7):
+                    chunk = run[k:k + 7]
+                    idxs = ([idc] if base_n and idc < base_n else []) + [i for i, _s in chunk]
+                    bands.append(_mk_band(_sec_cap(chunk[0][1]), idxs))
         # فیلدهای متن‌بلد: هرکدام جدول دوسطونه [عنوان، متن] — ستون متن پهن
         for i, sec in long_cols:
             idxs = ([idc] if base_n and idc < base_n else []) + [i]
@@ -2584,7 +2599,9 @@ def reports():
         header, rows = export_rows(acts)
         if cols:
             header, rows = select_cols(header, rows, cols)
-        pt_summary, pt_groups = report_print_tables(header, rows, acts)
+        # کاربر ستون‌ها را خودش انتخاب کرده → جدول تخت دقیقاً همان‌ها (بدون باند)
+        pt_summary, pt_groups = report_print_tables(header, rows, acts,
+                                                    simple=bool(cols))
         return render_template("report_print.html", header=header, rows=rows,
                                title="گزارش فعالیت‌ها", charts=build_report_charts(acts),
                                filter_text=filters_summary(),

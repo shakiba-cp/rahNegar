@@ -16,6 +16,26 @@ export const PALETTE = [
 export const STATUS_C = { 'در حال انجام': '#D97706', 'انجام شده': '#0F766E', 'بررسی شده': '#2563EB' };
 if (typeof window !== 'undefined') window.STATUS_C = STATUS_C;
 
+/* گروه‌بندی حلقه‌های ریز دونات → «سایر»: وقتی برچسب‌ها زیاد و کم‌سهم‌اند
+   (مثلاً ۱۳ حوزه با تعدادهای ۰/۱) لجند و نمودار شلوغ می‌شد — حداکثر maxs
+   برش بزرگ + یک ورودی تجمیعی خاکستری با تعداد واقعی. */
+export function groupTinySlices(data, maxs = 7, minShare = 0.02) {
+  const arr = (data || []).filter(d => d.value > 0).sort((a, b) => b.value - a.value);
+  if (arr.length <= 3) return arr;
+  const total = arr.reduce((a, d) => a + d.value, 0) || 1;
+  const keep = [], rest = [];
+  arr.forEach(d => {
+    if (keep.length < maxs && d.value / total >= minShare) keep.push(d);
+    else rest.push(d);
+  });
+  if (rest.length >= 2) {
+    keep.push({ label: 'سایر', value: rest.reduce((a, d) => a + d.value, 0), color: '#94A3B8' });
+  } else {
+    keep.push(...rest);
+  }
+  return keep;
+}
+
 export function shade(hex, p) {
   const n = parseInt(hex.slice(1), 16);
   let r = (n >> 16), g = (n >> 8) & 255, b = n & 255;

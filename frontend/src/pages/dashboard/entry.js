@@ -4,6 +4,7 @@
 import { reactive } from 'vue';
 import { mountApp, readJson, toEn } from '@/lib/kit.js';
 import { mountChart } from '@/charts/mount.js';
+import { groupTinySlices } from '@/lib/svgcharts.js';
 import KpiGrid from './KpiGrid.vue';
 import RangeChips from './RangeChips.vue';
 import MiniTable from './MiniTable.vue';
@@ -71,7 +72,8 @@ function applyAll(p) {
       })));
     }
     dash.months = p.charts.monthly || [];
-    mountChart('donut', 'ch-dom', p.charts.domains);
+    // دونات «سهم هر حوزه»: حلقه‌های ریز و پرتعداد با هم → «سایر» تا نمودار شلوغ نشود
+    mountChart('donut', 'ch-dom', groupTinySlices(p.charts.domains));
     mountChart('donut', 'ch-st', p.charts.status.map(x => ({
       ...x, color: (window.STATUS_C[x.label] || '#2563eb'),
       href: '/activities?status=' + encodeURIComponent(x.label)

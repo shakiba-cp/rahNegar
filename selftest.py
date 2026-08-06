@@ -249,6 +249,56 @@ check("PDF حوزه وب: ستون «حوزه» در باند اطلاعات پ�
 check("PDF حوزه وب: باندی به‌نام «اطلاعات پایه» با ستون‌های پایه وجود دارد",
       any(b["caption"] == "اطلاعات پایه" and "عنوان" in b["header"]
           for b in _gnames["ارزیابی امنیتی وب"]["bands"]))
+check("PDF: جدول «خلاصه کلی — همه حوزه‌ها» در خروجی نیست (به درخواست کاربر)",
+      _summ is None)
+check("PDF: هیچ باندی بیش از ۹ ستون ندارد (خوانایی روی کاغذ)",
+      all(len(b["header"]) <= 9 for gg in _groups for b in gg["bands"]))
+# حالت ساده: کاربر ستون‌ها را خودش انتخاب کرده → یک جدول تخت دقیقاً همان‌ها
+with A.app.app_context():
+    _cols_sel = [c for c in _hp if c not in ("حوزه", "شماره تیکت")][:6]
+    _h2, _r2 = A.select_cols(_hp, _rp, _cols_sel)
+    _s2, _g2 = A.report_print_tables(_h2, _r2, _acts_pdf, simple=True)
+check("PDF ستون‌منتخب: جدول خلاصه ندارد و برای هر حوزه فقط یک جدول تخت می‌سازد",
+      _s2 is None and all(len(gg["bands"]) == 1 and gg["bands"][0]["caption"] is None
+                          for gg in _g2), [(gg["name"], len(gg["bands"])) for gg in _g2])
+check("PDF ستون‌منتخب: دقیقاً همان ستون‌های انتخاب‌شده (بدون باند اضافه)",
+      _g2 and _g2[0]["bands"][0]["header"] == [c for c in _cols_sel if c != "حوزه"],
+      _g2[0]["bands"][0]["header"] if _g2 else None)
+# حوزه کوچک با ستون‌های کم: باید یک جدول واحد ادغامی بسازد (نه چند باند تکراری)
+with A.app.app_context():
+    _db = A.get_db()
+    _sm = _db.execute("""SELECT d.id, d.name FROM domains d
+                         WHERE NOT EXISTS(SELECT 1 FROM activities a
+                                          WHERE a.domain_id=d.id)
+                         ORDER BY (SELECT COUNT(*) FROM form_fields f
+                                   WHERE f.domain_id=d.id AND f.is_active=1
+                                     AND f.field_type!='textarea') LIMIT 1""").fetchone()
+    _ff = _db.execute("""SELECT label, field_type FROM form_fields
+                         WHERE domain_id=? AND is_active=1""", (_sm["id"],)).fetchall()
+    _short_n = sum(1 for f in _ff if f["field_type"] != "textarea")
+    _d0 = A.now_iso()
+    _sm_aid = _db.execute("""INSERT INTO activities(domain_id,user_id,status,date,created_at,updated_at)
+                             VALUES(?,?,?,?,?,?)""",
+                          (_sm["id"], 1, A.STATUSES[0], _d0[:10], _d0, _d0)).lastrowid
+    _db.commit()
+    _sm_acts = A.query_activities("a.domain_id=?", [_sm["id"]])
+    _h3, _r3 = A.export_rows(_sm_acts)
+    _s3, _g3 = A.report_print_tables(_h3, _r3, _sm_acts)
+    # پاک‌سازی فوری — این تست نباید روی جریان‌های بعدی اثر بگذارد
+    _db.execute("DELETE FROM activities WHERE id=?", (_sm_aid,))
+    _db.commit()
+_sm_bands = _g3[0]["bands"] if _g3 else []
+_sm_txt_n = sum(1 for f in _ff if f["field_type"] == "textarea")
+_fits = 4 + _short_n <= 8   # پایه (بدون حوزه و تیکت) + فیلدهای کوتاه
+if _fits:
+    _sm_cond = (len(_sm_bands) == 1 + _sm_txt_n and _sm_bands and
+                all(f["label"] in _sm_bands[0]["header"] for f in _ff
+                    if f["field_type"] != "textarea"))
+else:
+    _sm_cond = len(_sm_bands) > 1 + _sm_txt_n
+check("PDF حوزه کوچک: وقتی جا می‌شود همه ستون‌ها یک جدول واحد ادغامی می‌شوند",
+      _sm_cond, (f"fields={_short_n}txt={_sm_txt_n}",
+                 [(b["caption"], len(b["header"])) for b in _sm_bands]))
 r = c.get("/")
 check("کارشناس ناشناخته در نمودار تفکیک کارشناس دیده می‌شود",
       "رضا کریمی".encode() in r.data)
