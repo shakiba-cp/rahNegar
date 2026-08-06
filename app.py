@@ -209,7 +209,7 @@ DOMAIN_FIELDS = {
 
 app = Flask(__name__)
 # نسخه دارایی‌های استاتیک برای شکستن کش مرورگر بعد از هر آپدیت (cache-busting)
-ASSET_V = "6.5.7"
+ASSET_V = "6.5.9"
 app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
 # تقویت امنیت کوکی نشست — Secure را هنگام HTTPS با متغیر محیطی SECURE_COOKIE=1 فعال کنید
 app.config["SESSION_COOKIE_HTTPONLY"] = True
@@ -847,6 +847,7 @@ def build_filters():
 
 def query_activities(where, params, limit=None, offset=0):
     sql = f"""SELECT a.*, d.name AS domain_name, u.full_name AS expert_name,
+             o.name AS org_name,
              (SELECT v.value FROM activity_values v JOIN form_fields ff
                ON ff.id=v.field_id AND ff.field_key='expert'
               WHERE v.activity_id=a.id LIMIT 1) AS expert_txt,
@@ -854,6 +855,7 @@ def query_activities(where, params, limit=None, offset=0):
              FROM activities a
              JOIN domains d ON d.id=a.domain_id
              JOIN users u ON u.id=a.user_id
+             LEFT JOIN orgs o ON o.id=d.org_id
              WHERE {where} ORDER BY a.date IS NULL, a.date DESC, a.id DESC"""
     if limit:
         sql += " LIMIT ? OFFSET ?"
@@ -1078,9 +1080,15 @@ def report_print_tables(header, rows, acts, simple=False):
             continue
         # ستون «حوزه» چون در تیتر گروه آمده، در خود جداول تکرار نمی‌شود
         dom_col = 0 if (header and header[0] == "حوزه") else None
-        # حالت ساده: کاربر ستون‌ها را انتخاب کرده → یک جدول تختِ دقیقاً همان‌ها
+        # حالت ساده: کاربر ستون‌ها را انتخاب کرده → جدول تخت، اما **هر حوزه فقط
+        # ستون‌هایی که واقعاً متعلق به خودش است** (+ ستون‌های پایه مثل عنوان/کارشناس)؛
+        # پیشنهاد کاربر: «داخل رصد چرا ستون دوره آموزشی هست؟»
         if simple:
-            idxs = [i for i in range(len(header)) if i != dom_col]
+            own = {lbl for lbl, _t, _s in lbl_info.get(dn, [])}
+            idxs = [i for i in range(len(header))
+                    if i != dom_col and (i < base_n or header[i] in own
+                                         or (header[i] not in defined_anywhere
+                                             and any(r[i] for r in drows)))]
             groups.append({"name": dn, "rows_n": len(drows),
                            "bands": [_mk_band(None, idxs)] if idxs else []})
             continue
@@ -1149,6 +1157,12 @@ def dashboard_payload():
         SELECT d.name, COUNT(a.id) c FROM domains d
         LEFT JOIN activities a ON a.domain_id=d.id {mine}
         WHERE d.is_active=1 GROUP BY d.id ORDER BY c DESC""", mp).fetchall()
+    # سهم هر مرکز از فعالیت‌ها (نمودار توزیع مرکزها — جایگزین دونات تکراری «سهم هر حوزه»)
+    per_orgs = db.execute(f"""
+        SELECT o.name, COUNT(a.id) c FROM orgs o
+        LEFT JOIN domains d ON d.org_id=o.id
+        LEFT JOIN activities a ON a.domain_id=d.id {mine}
+        GROUP BY o.id ORDER BY c DESC, o.sort_order, o.id""", mp).fetchall()
     per_status = db.execute(f"""
         SELECT a.status, COUNT(*) c FROM activities a WHERE 1=1 {mine}
         GROUP BY a.status""", mp).fetchall()
@@ -1227,6 +1241,7 @@ def dashboard_payload():
     months = months[-60:]  # تا ۵ سال تاریخچه — بازه با فیلتر سمت کلاینت محدود می‌شود
     charts = {
         "domains": [{"label": r["name"], "value": r["c"]} for r in per_domain],
+        "orgs": [{"label": r["name"], "value": r["c"]} for r in per_orgs if r["c"]],
         "status": [{"label": s, "value": next((r["c"] for r in per_status
                                                if r["status"] == s), 0)}
                    for s in STATUSES],
@@ -1304,6 +1319,7 @@ def activities():
         "id": a["id"],
         "title": a["title"] or "بدون عنوان",
         "domain": a["domain_name"],
+        "org": a["org_name"] if "org_name" in a.keys() and a["org_name"] else "—",
         "icon": domain_icon(a["domain_name"]),
         "expert": _canon_expert(a["expert_txt"] or a["expert_name"]),
         "flagged": a["flagged"] if "flagged" in a.keys() else 0,
@@ -3019,9 +3035,33 @@ def optional_font_css():
     return ("\n".join(rules), 200, {"Content-Type": "text/css; charset=utf-8"})
 
 
+def _domains_json(db, org_id=None):
+    """داده JSON جدول حوزه‌ها (برای DomsTable) — قابل فیلتر به یک مرکز."""
+    orgs = db.execute("SELECT * FROM orgs ORDER BY sort_order, id").fetchall()
+    where, params = ("WHERE d.org_id=?", (org_id,)) if org_id else ("", ())
+    rows = db.execute(f"""SELECT d.*, o.name org_name,
+        (SELECT COUNT(*) FROM activities a WHERE a.domain_id=d.id) act_count,
+        (SELECT COUNT(*) FROM form_fields f WHERE f.domain_id=d.id AND f.is_active=1) field_count
+        FROM domains d LEFT JOIN orgs o ON o.id=d.org_id
+        {where}
+        ORDER BY COALESCE(o.sort_order,99), d.sort_order, d.id""", params).fetchall()
+    domains_json = [{
+        "id": d["id"], "name": d["name"], "icon": domain_icon(d["name"]),
+        "org": d["org_name"] or "—", "org_id": d["org_id"] or 0,
+        "field_count": d["field_count"], "act_count": d["act_count"],
+        "is_active": bool(d["is_active"]),
+        "edit": url_for("domain_edit", domain_id=d["id"]),
+        "toggle": url_for("domain_toggle", domain_id=d["id"]),
+        "delete": url_for("domain_delete", domain_id=d["id"]),
+        "fields": url_for("fields_page", domain_id=d["id"]),
+    } for d in rows]
+    return domains_json, [{"id": o["id"], "name": o["name"]} for o in orgs]
+
+
 @app.route("/domains", methods=["GET", "POST"])
 @admin_required
 def domains_page():
+    """نخست مرکز را انتخاب/ایجاد می‌کنی، بعد وارد صفحه خود مرکز می‌شوی و حوزه‌هایش را مدیریت می‌کنی."""
     db = get_db()
     if request.method == "POST":
         name = request.form.get("name", "").strip()
@@ -3038,31 +3078,49 @@ def domains_page():
                        (name, mx + 1, org_id))
             db.commit()
             flash("حوزه جدید افزوده شد. از «مدیریت فیلدها» فیلدهای آن را تعریف کنید.", "success")
-        return redirect(url_for("domains_page"))
-    rows = db.execute("""SELECT d.*, o.name org_name,
-        (SELECT COUNT(*) FROM activities a WHERE a.domain_id=d.id) act_count,
-        (SELECT COUNT(*) FROM form_fields f WHERE f.domain_id=d.id AND f.is_active=1) field_count
-        FROM domains d LEFT JOIN orgs o ON o.id=d.org_id
-        ORDER BY COALESCE(o.sort_order,99), d.sort_order, d.id""").fetchall()
-    orgs = db.execute("SELECT * FROM orgs ORDER BY sort_order, id").fetchall()
-    org_counts = {}
-    for _d in rows:
-        org_counts[_d["org_id"]] = org_counts.get(_d["org_id"], 0) + 1
-    # داده JSON برای جدول تعاملی Vue 3 (افزودنی)
-    domains_json = [{
-        "id": d["id"], "name": d["name"], "icon": domain_icon(d["name"]),
-        "org": d["org_name"] or "—", "org_id": d["org_id"] or 0,
-        "field_count": d["field_count"], "act_count": d["act_count"],
-        "is_active": bool(d["is_active"]),
-        "edit": url_for("domain_edit", domain_id=d["id"]),
-        "toggle": url_for("domain_toggle", domain_id=d["id"]),
-        "delete": url_for("domain_delete", domain_id=d["id"]),
-        "fields": url_for("fields_page", domain_id=d["id"]),
-    } for d in rows]
-    orgs_json = [{"id": o["id"], "name": o["name"]} for o in orgs]
-    return render_template("domains.html", domains=rows, icons=DOMAIN_ICONS,
-                           domains_json=domains_json, orgs=orgs, orgs_json=orgs_json,
-                           org_counts=org_counts)
+            return redirect(url_for("org_view", org_id=org_id))
+        return redirect(request.referrer or url_for("domains_page"))
+    # نمای کلی مراکز: نام، شمارش حوزه/فعالیت/کارشناس — کارت هر مرکز
+    orgs = db.execute("""SELECT o.*,
+        (SELECT COUNT(*) FROM domains d WHERE d.org_id=o.id) dom_count,
+        (SELECT COUNT(*) FROM activities a JOIN domains d2 ON d2.id=a.domain_id
+          WHERE d2.org_id=o.id) act_count,
+        (SELECT COUNT(*) FROM users u WHERE u.org_id=o.id AND u.is_active=1) user_count
+        FROM orgs o ORDER BY o.sort_order, o.id""").fetchall()
+    return render_template("domains.html", orgs=orgs)
+
+
+@app.route("/orgs/<int:org_id>")
+@admin_required
+def org_view(org_id):
+    """صفحه خود مرکز: ساخت/ویرایش حوزه‌های همان مرکز (جریان کاری: مرکز ← حوزه)."""
+    db = get_db()
+    org = db.execute("SELECT * FROM orgs WHERE id=?", (org_id,)).fetchone()
+    if not org:
+        abort(404)
+    domains_json, orgs_json = _domains_json(db, org_id)
+    return render_template("org_view.html", org=org, icons=DOMAIN_ICONS,
+                           domains_json=domains_json, orgs_json=orgs_json)
+
+
+@app.route("/orgs/<int:org_id>/rename", methods=["POST"])
+@admin_required
+def org_rename(org_id):
+    db = get_db()
+    o = db.execute("SELECT * FROM orgs WHERE id=?", (org_id,)).fetchone()
+    if not o:
+        abort(404)
+    name = request.form.get("name", "").strip()
+    if not name:
+        flash("نام مرکز الزامی است.", "error")
+    elif name != o["name"] and db.execute("SELECT 1 FROM orgs WHERE name=? AND id<>?",
+                                          (name, org_id)).fetchone():
+        flash("مرکزی با این نام وجود دارد.", "error")
+    else:
+        db.execute("UPDATE orgs SET name=? WHERE id=?", (name, org_id))
+        db.commit()
+        flash(f"نام مرکز به «{name}» تغییر کرد.", "success")
+    return redirect(request.referrer or url_for("domains_page"))
 
 
 @app.route("/domains/<int:domain_id>/edit", methods=["POST"])
@@ -3217,6 +3275,26 @@ def field_edit(field_id):
         db.commit()
         flash("فیلد ویرایش شد.", "success")
     return redirect(request.referrer or url_for("fields_page", domain_id=f["domain_id"]))
+
+
+@app.route("/domains/<int:domain_id>/fields/reorder", methods=["POST"])
+@admin_required
+def fields_reorder(domain_id):
+    """ذخیره ترتیب جدید فیلدها پس از جابه‌جایی با کشیدن (درگ‌ودراپ) — JSON: {order:[id,...]}"""
+    get_domain_or_404(domain_id)
+    data = request.get_json(silent=True) or {}
+    order = data.get("order") or []
+    db = get_db()
+    ids = {r["id"] for r in
+           db.execute("SELECT id FROM form_fields WHERE domain_id=?", (domain_id,))}
+    seq = [int(i) for i in order if int(i) in ids] if all(
+        str(i).isdigit() for i in order) else []
+    if not seq or len(seq) != len(ids):
+        return jsonify({"ok": False, "error": "ترتیب ناقص است"}), 400
+    for pos, fid in enumerate(seq, 1):
+        db.execute("UPDATE form_fields SET sort_order=? WHERE id=?", (pos * 10, fid))
+    db.commit()
+    return jsonify({"ok": True})
 
 
 @app.route("/fields/<int:field_id>/move", methods=["POST"])

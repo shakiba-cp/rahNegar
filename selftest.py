@@ -38,7 +38,7 @@ check("ورود مدیر", r.status_code == 200 and "داشبورد".encode() in
 # ---------- داشبورد
 r = c.get("/")
 check("داشبورد: نمودارها", all(x.encode() in r.data for x in
-      ["فعالیت‌ها به تفکیک حوزه", "سهم هر حوزه", "نمودار وضعیت",
+      ["فعالیت‌ها به تفکیک حوزه", "سهم هر مرکز", "نمودار وضعیت",
        "روند ماهانه", "ورودهای Excel", "آخرین فعالیت‌ها"]))
 
 # ---------- ثبت فعالیت (فرم پویا)
@@ -690,7 +690,8 @@ check("مدیر پاسخ کارشناس را می‌بیند", "ارزیابی �
 r = c.get(f"/reports?export=pdf&domain={dom['id']}")
 h5 = r.data.decode()
 check("PDF تک‌حوزه بدون نمودار سهم", "سهم حوزه‌ها" not in h5)
-check("PDF تک‌حوزه دارای وضعیت", "نمودار وضعیت" in h5)
+check("PDF تک‌حوزه: «نمودار وضعیت» از گزارش حذف شده (درخواست کاربر)",
+      "نمودار وضعیت" not in h5 and 'id="ch-st"' not in h5)
 # ساخت یک فعالیت در حوزه دوم تا نمودار سهم حوزه‌ها دیده شود
 with A.app.app_context():
     dom_b = A.get_db().execute("SELECT * FROM domains WHERE name='بدافزار'").fetchone()
@@ -870,7 +871,8 @@ check("فیلتر مرکز در لیست فعالیت‌ها", r.status_code == 
 r = c.get(f"/reports?org={_kashef['id']}")
 check("فیلتر مرکز در گزارش‌ها", r.status_code == 200, r.status_code)
 r = c.get("/domains")
-check("صفحه مدیریت حوزه‌ها: نوار مراکز", "مراکز:".encode() in r.data)
+check("صفحه مراکز و حوزه‌ها: کارت مراکز", "مراکز و حوزه‌ها".encode() in r.data
+      and "ورود و مدیریت حوزه‌ها".encode() in r.data)
 
 # یکدست‌سازی نام کارشناس — ادغام «نام کوتاه/مستعار» با نام کامل در نمودار داشبورد
 with A.app.app_context():
@@ -1087,5 +1089,103 @@ r = c.get("/api/dashboard")
 check("API داشبورد کارشناس: last_uploads خالی برمی‌گردد",
       r.get_json().get("last_uploads") == [])
 c.get("/logout"); login("admin", "admin123")
+
+# ---------- جریان مرکز ← حوزه + ستون مرکز + نمودار سهم هر مرکز + درگ فیلدها ----------
+with A.app.app_context():
+    _om = A.get_db().execute("SELECT id FROM orgs WHERE name='ماهر'").fetchone()["id"]
+r = c.get("/domains")
+check("صفحه مراکز: دکمه «ایجاد مرکز»", "ایجاد مرکز".encode() in r.data)
+r = c.get(f"/orgs/{_om}")
+check("صفحه مرکز: عنوان مرکز + جدول حوزه‌ها", "مرکز «ماهر»".encode() in r.data
+      and "doms-data".encode() in r.data)
+check("صفحه مرکز: حوزه‌های زیرمجموعه همان مرکز آمده‌اند",
+      "ارزیابی امنیتی وب".encode() in r.data)
+r = c.get("/orgs/9999")
+check("مرکز ناموجود → 404", r.status_code == 404)
+r = c.post(f"/orgs/{_om}/rename", data={"name": "ماهر"}, follow_redirects=True)
+check("تغییر نام مرکز بدون تغییر — بدون خطا", r.status_code == 200)
+r = c.post(f"/orgs/{_om}/rename", data={"name": "کاشف"}, follow_redirects=True)
+check("نام تکراری مرکز رد می‌شود", "وجود دارد".encode() in r.data)
+
+r = c.get("/activities")
+check("جدول فعالیت‌ها: ستون «مرکز» در داده JSON", '"org": "ماهر"'.encode() in r.data)
+
+r = c.get("/api/dashboard")
+_j = r.get_json()
+check("داشبورد: داده نمودار «سهم هر مرکز»",
+      "orgs" in (_j.get("charts") or {})
+      and any(x["label"] == "ماهر" and x["value"] > 0 for x in _j["charts"]["orgs"]))
+
+# کشیدن و رها کردن فیلدها — ذخیره ترتیب
+with A.app.app_context():
+    _fd = A.get_db().execute("""SELECT domain_id, GROUP_CONCAT(id) ids, COUNT(*) n
+                                FROM form_fields GROUP BY domain_id
+                                HAVING n>=3 LIMIT 1""").fetchone()
+check("حوزه‌ای با حداقل سه فیلد برای تست ترتیب هست", _fd is not None)
+_ids = [int(x) for x in _fd["ids"].split(",")]
+r = c.post(f"/domains/{_fd['domain_id']}/fields/reorder", json={"order": list(reversed(_ids))})
+check("ذخیره ترتیب جدید فیلدها (reorder)", r.status_code == 200 and r.get_json().get("ok"))
+with A.app.app_context():
+    _new_first = A.get_db().execute("""SELECT id FROM form_fields WHERE domain_id=?
+                                       ORDER BY sort_order, id LIMIT 1""",
+                                    (_fd["domain_id"],)).fetchone()["id"]
+check("ترتیب جدید در دیتابیس اعمال شد", _new_first == _ids[-1])
+r = c.post(f"/domains/{_fd['domain_id']}/fields/reorder", json={"order": _ids[:-1]})
+check("ترتیب ناقص رد می‌شود (400)", r.status_code == 400)
+c.post(f"/domains/{_fd['domain_id']}/fields/reorder", json={"order": _ids})  # بازگردانی
+
+with open("frontend/src/pages/activities/ActsTable.vue", encoding="utf-8") as _f:
+    _acts_vue = _f.read()
+check("کامپوننت جدول: ستون مرکز", "{ k: 'org', t: 'مرکز'" in _acts_vue)
+with open("frontend/src/pages/fields/FldsList.vue", encoding="utf-8") as _f:
+    _fld_vue = _f.read()
+check("کامپوننت فیلدها: کشیدن با دسته و ذخیره خودکار",
+      "dhandle" in _fld_vue and "saveOrder" in _fld_vue)
+with open("frontend/src/components/charts/DistChart.vue", encoding="utf-8") as _f:
+    _dist_vue = _f.read()
+check("کامپوننت نمودار توزیع مرکز (dist-bar)", "dist-bar" in _dist_vue)
+with open("static/css/app.css", encoding="utf-8") as _f:
+    _acss2 = _f.read()
+check("استایل کارت مراکز و دسته درگ", ".ocard{" in _acss2 and ".dhandle{" in _acss2
+      and ".dist-bar{" in _acss2)
+
+# ---------- PDF: در حالت انتخاب ستون (simple) هر حوزه فقط ستون‌های خودش ----------
+with A.app.app_context():
+    _db = A.get_db()
+    _acts = A.query_activities("1=1", [])
+    _names = []
+    for _a in _acts:
+        if _a["domain_name"] not in _names:
+            _names.append(_a["domain_name"])
+check("PDF per-domain: حداقل دو حوزه در دادهٔ آزمون", len(_names) >= 2, _names)
+_d1, _d2 = _names[0], _names[1]
+with A.app.app_context():
+    _db = A.get_db()
+    _l1 = {r["label"] for r in _db.execute(
+        """SELECT f.label FROM form_fields f JOIN domains d ON d.id=f.domain_id
+           WHERE d.name=? AND f.is_active=1""", (_d1,))}
+    _l2 = {r["label"] for r in _db.execute(
+        """SELECT f.label FROM form_fields f JOIN domains d ON d.id=f.domain_id
+           WHERE d.name=? AND f.is_active=1""", (_d2,))}
+_uniq = sorted(_l2 - _l1)
+check("PDF per-domain: برچسب اختصاصیِ حوزه دوم یافت شد", bool(_uniq), (_d1, _d2))
+_ulbl = _uniq[0]
+with A.app.app_context():
+    _hdr, _rows = A.export_rows(list(_acts))
+    _hdr_s, _rows_s = A.select_cols(_hdr, _rows, ["عنوان", "کارشناس", _ulbl])
+    _s, _grps = A.report_print_tables(_hdr_s, _rows_s, list(_acts), simple=True)
+_g1 = next((g for g in _grps if g["name"] == _d1), None)
+_g2 = next((g for g in _grps if g["name"] == _d2), None)
+_hdrs1 = [h for b in (_g1["bands"] if _g1 else []) for h in b["header"]]
+_hdrs2 = [h for b in (_g2["bands"] if _g2 else []) for h in b["header"]]
+check("PDF: در گروه حوزهٔ اول، ستون اختصاصی حوزهٔ دوم نیاید",
+      _ulbl not in _hdrs1, (_d1, _ulbl, _hdrs1[:12]))
+check("PDF: در گروه حوزهٔ دوم، ستون اختصاصی خودش بیاید",
+      _ulbl in _hdrs2, (_d2, _hdrs2[:12]))
+check("PDF: ستون‌های پایه (عنوان/کارشناس) در هر دو گروه هست",
+      "عنوان" in _hdrs1 and "عنوان" in _hdrs2)
+# دودویی چاپ هم تمیز باشد
+r = c.get(f"/reports?export=pdf&col={_ulbl}&col=عنوان", follow_redirects=False)
+check("PDF با انتخاب ستون بدون خطا رندر می‌شود", r.status_code == 200, r.status_code)
 
 print(f"\n✅ همه {len(ok)} تست موفقیت‌آمیز بود.")

@@ -31,16 +31,12 @@
 <div class="charts">
   <div class="chart-card"><h4>سهم حوزه‌ها</h4>
     <div id="ch-dom" class="p230"></div><div class="legend" id="ch-dom-legend"></div></div>
-  <div class="chart-card"><h4>نمودار وضعیت</h4>
-    <div id="ch-st" class="p230"></div><div class="legend" id="ch-st-legend"></div></div>
   <div class="chart-card"><h4>روند ماهانه</h4><div id="ch-month"></div></div>
   <div class="chart-card"><h4>فعالیت‌ها به تفکیک حوزه</h4><div id="ch-bar"></div></div>
 </div>
 {% else %}
-{# حوزه واحد انتخاب شده — فقط نمودارهای همان حوزه نمایش داده می‌شود #}
+{# حوزه واحد انتخاب شده — فقط نمودار همان حوزه نمایش داده می‌شود #}
 <div class="charts">
-  <div class="chart-card"><h4>نمودار وضعیت{% if charts.domains %} — {{ charts.domains[0].label }}{% endif %}</h4>
-    <div id="ch-st" class="p230"></div><div class="legend" id="ch-st-legend"></div></div>
   <div class="chart-card"><h4>روند ماهانه{% if charts.domains %} — {{ charts.domains[0].label }}{% endif %}</h4><div id="ch-month"></div></div>
 </div>
 {% endif %}
